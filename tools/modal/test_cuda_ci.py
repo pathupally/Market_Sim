@@ -1,6 +1,7 @@
 from decimal import Decimal
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -85,8 +86,8 @@ class CudaDispatchTests(unittest.TestCase):
         self.assertEqual(COMPILE_COST_CEILING_USD, Decimal("0.0210480"))
         self.assertEqual(GPU_COST_CEILING_USD, Decimal("0.2313720"))
         self.assertEqual(CHAIN_COST_CEILING_USD, Decimal("0.2524200"))
-        self.assertEqual(TRIAL_COMPUTE_CEILING_USD, Decimal("1.25"))
-        self.assertEqual(TRIAL_GPU_MINUTE_CEILING, Decimal("60"))
+        self.assertEqual(TRIAL_COMPUTE_CEILING_USD, Decimal("2.00"))
+        self.assertEqual(TRIAL_GPU_MINUTE_CEILING, Decimal("120"))
 
     def test_dry_run_has_complete_resources_and_dispatches_nothing(self) -> None:
         plan = dry_run_manifest(Decimal("0"))
@@ -97,8 +98,8 @@ class CudaDispatchTests(unittest.TestCase):
         )
         self.assertEqual(plan["ordered_stages"][1]["gpu"], "L4")
         self.assertEqual(plan["ordered_stages"][0]["memory_gib"], 4)
-        self.assertEqual(plan["budget"]["trial_compute_ceiling_usd"], "1.25")
-        self.assertEqual(plan["budget"]["trial_gpu_minute_ceiling"], "60")
+        self.assertEqual(plan["budget"]["trial_compute_ceiling_usd"], "2.00")
+        self.assertEqual(plan["budget"]["trial_gpu_minute_ceiling"], "120")
 
     def test_combined_cost_equality_with_soft_cap_is_allowed(self) -> None:
         month_to_date = Decimal("24") - CHAIN_COST_CEILING_USD
@@ -455,7 +456,7 @@ class CudaDispatchTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 ledger.reserve(candidate_commit=commit, gate_id=GATE_ID)
             ledger.finish(first, passed=False)
-            for suffix in ("b", "c", "d"):
+            for suffix in ("b", "c", "d", "e", "f", "0"):
                 reservation = ledger.reserve(
                     candidate_commit=suffix * 40, gate_id=GATE_ID
                 )
@@ -465,10 +466,82 @@ class CudaDispatchTests(unittest.TestCase):
                         candidate_commit=suffix * 40,
                         gate_id=GATE_ID,
                     )
-            with self.assertRaises(RuntimeError):
+            with self.assertRaisesRegex(RuntimeError, r"\$2\.00"):
                 ledger.reserve(
-                    candidate_commit="e" * 40, gate_id=GATE_ID
+                    candidate_commit="1" * 40, gate_id=GATE_ID
                 )
+
+    def test_copied_four_entry_ledger_allows_three_more_and_blocks_eighth(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as original_directory,
+            tempfile.TemporaryDirectory() as copied_directory,
+        ):
+            original = TrialLedger(Path(original_directory))
+            for suffix in ("a", "b", "c", "d"):
+                reservation = original.reserve(
+                    candidate_commit=suffix * 40,
+                    gate_id=GATE_ID,
+                )
+                original.finish(reservation, passed=False)
+            original_value = json.loads(
+                original.path.read_text(encoding="utf-8")
+            )
+
+            copied_root = Path(copied_directory)
+            shutil.copy2(original.path, copied_root / original.path.name)
+            shutil.copy2(original.key_path, copied_root / original.key_path.name)
+            copied = TrialLedger(copied_root)
+            for suffix in ("e", "f", "0"):
+                reservation = copied.reserve(
+                    candidate_commit=suffix * 40,
+                    gate_id=GATE_ID,
+                )
+                copied.finish(reservation, passed=False)
+
+            copied_value = json.loads(
+                copied.path.read_text(encoding="utf-8")
+            )
+            reservations = copied_value["reservations"]
+            self.assertEqual(
+                reservations[:4],
+                original_value["reservations"],
+            )
+            self.assertEqual(len(reservations), 7)
+            reserved_cost = sum(
+                (
+                    parse_cost(item["reserved_cost_usd"])
+                    for item in reservations
+                ),
+                Decimal("0"),
+            )
+            reserved_minutes = sum(
+                (
+                    parse_cost(item["reserved_gpu_minutes"])
+                    for item in reservations
+                ),
+                Decimal("0"),
+            )
+            self.assertEqual(reserved_cost, Decimal("1.766940"))
+            self.assertEqual(reserved_minutes, Decimal("105"))
+            self.assertEqual(
+                reserved_cost + CHAIN_COST_CEILING_USD,
+                Decimal("2.019360"),
+            )
+            self.assertEqual(
+                reserved_minutes + Decimal("15"),
+                Decimal("120"),
+            )
+            with self.assertRaisesRegex(RuntimeError, r"\$2\.00"):
+                copied.reserve(
+                    candidate_commit="1" * 40,
+                    gate_id=GATE_ID,
+                )
+            self.assertEqual(
+                json.loads(copied.path.read_text(encoding="utf-8")),
+                copied_value,
+            )
 
     def test_trial_ledger_rejects_tampered_persisted_reservations(self) -> None:
         mutations = {

@@ -36,7 +36,8 @@ def valid_manifest() -> dict[str, object]:
                 "operating_system": "ubuntu24.04",
                 "host_compiler": "gcc 13.2.0",
                 "cmake": "3.30.5",
-                "ninja": "1.11.1.1",
+                "ninja_distribution": "1.11.1.1",
+                "ninja_binary": "1.11.1.git.kitware.jobserver-1",
                 "cuda_toolkit": "12.6.3",
                 "nvcc": "12.6.3",
                 "cuda_runtime": "12.6",
@@ -203,6 +204,17 @@ class CudaEvidenceTests(unittest.TestCase):
         manifest["toolchain"]["observed"]["cuda_toolkit"] = "12.7"
         with self.assertRaises(ValidationError):
             self.validate(manifest)
+        for field, replacement in (
+            ("ninja_distribution", "1.11.1.git.kitware.jobserver-1"),
+            ("ninja_binary", "1.11.1.1"),
+            ("ninja_distribution", True),
+            ("ninja_binary", None),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                manifest = valid_manifest()
+                manifest["toolchain"]["observed"][field] = replacement
+                with self.assertRaisesRegex(ValidationError, field):
+                    self.validate(manifest)
         manifest = valid_manifest()
         manifest["profilers"]["nsys"]["availability"] = "available"
         with self.assertRaises(ValidationError):
@@ -220,6 +232,8 @@ class CudaEvidenceTests(unittest.TestCase):
             ("registry_image", "platform", "linux/arm64"),
             ("toolchain", "cuda", "12.7.0"),
             ("toolchain", "cmake", "3.31.0"),
+            ("toolchain", "ninja_distribution", "1.11.1"),
+            ("toolchain", "ninja_binary", "1.11.1"),
             ("modal", "gpu", "T4"),
         )
         for section, field, replacement in mutations:
@@ -238,6 +252,8 @@ class CudaEvidenceTests(unittest.TestCase):
     def test_frozen_lock_rejects_recursive_json_type_aliases(self) -> None:
         mutations = (
             ("cpp_standard", True),
+            ("ninja_distribution", True),
+            ("ninja_binary", 1),
             ("cuda_architectures", [89.0]),
             ("compatibility_policy", {
                 **deepcopy(LOCK["toolchain"]["compatibility_policy"]),

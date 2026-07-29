@@ -10,7 +10,8 @@
   "toolchain": {
     "cuda": "12.6.3",
     "cmake": "3.30.5",
-    "ninja": "1.11.1.1",
+    "ninja_distribution": "1.11.1.1",
+    "ninja_binary": "1.11.1.git.kitware.jobserver-1",
     "cpp_standard": 20,
     "cuda_standard": 20,
     "cuda_architectures": [

@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from decimal import Decimal
 import hashlib
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 import io
 import json
 import os
@@ -134,6 +136,20 @@ def _first_line(command: list[str]) -> str:
     if not output:
         raise RuntimeError(f"version command returned no output: {command}")
     return output.splitlines()[0]
+
+
+def _installed_distribution_version(distribution: str) -> str:
+    try:
+        observed = distribution_version(distribution)
+    except PackageNotFoundError as error:
+        raise RuntimeError(
+            f"installed Python distribution is missing: {distribution}"
+        ) from error
+    if type(observed) is not str or not observed:
+        raise RuntimeError(
+            f"installed Python distribution version is missing: {distribution}"
+        )
+    return observed
 
 
 def _version(pattern: str, text: str, name: str) -> str:
@@ -618,6 +634,8 @@ def cuda_compile(
     )
     platform_evidence = _observed_platform()
     cmake_line = _first_line(["cmake", "--version"])
+    ninja_distribution = _installed_distribution_version("ninja")
+    ninja_binary = _first_line(["ninja", "--version"])
     nvcc_text = str(_run(["/usr/local/cuda/bin/nvcc", "--version"])["output"])
     nvcc_version = _version(r"V([0-9.]+)", nvcc_text, "nvcc")
     result = {
@@ -635,7 +653,8 @@ def cuda_compile(
                 )
             ),
             "cmake": _version(r"cmake version ([0-9.]+)", cmake_line, "CMake"),
-            "ninja": _first_line(["ninja", "--version"]),
+            "ninja_distribution": ninja_distribution,
+            "ninja_binary": ninja_binary,
             "cuda_toolkit": _read_cuda_toolkit_version(nvcc_version),
             "nvcc": nvcc_version,
         },
@@ -887,19 +906,29 @@ def _validate_compile_result(
         "platform",
         "host_compiler",
         "cmake",
-        "ninja",
+        "ninja_distribution",
+        "ninja_binary",
         "cuda_toolkit",
         "nvcc",
     }:
         raise RuntimeError("cuda_compile toolchain evidence is malformed")
-    if (
-        observed["operating_system"] != LOCK["registry_image"]["operating_system"]
-        or observed["platform"] != LOCK["registry_image"]["platform"]
-        or observed["cmake"] != LOCK["toolchain"]["cmake"]
-        or observed["ninja"] != LOCK["toolchain"]["ninja"]
-        or observed["cuda_toolkit"] != LOCK["toolchain"]["cuda"]
-    ):
-        raise RuntimeError("cuda_compile observed toolchain disagrees with lock")
+    exact_observed = {
+        "operating_system": LOCK["registry_image"]["operating_system"],
+        "platform": LOCK["registry_image"]["platform"],
+        "cmake": LOCK["toolchain"]["cmake"],
+        "ninja_distribution": LOCK["toolchain"]["ninja_distribution"],
+        "ninja_binary": LOCK["toolchain"]["ninja_binary"],
+        "cuda_toolkit": LOCK["toolchain"]["cuda"],
+    }
+    for field, expected in exact_observed.items():
+        if type(observed[field]) is not str or not observed[field]:
+            raise RuntimeError(
+                f"cuda_compile observed {field} is missing"
+            )
+        if observed[field] != expected:
+            raise RuntimeError(
+                f"cuda_compile observed {field} disagrees with lock"
+            )
     for field in ("host_compiler", "nvcc"):
         if type(observed[field]) is not str or not observed[field]:
             raise RuntimeError(f"cuda_compile observed {field} is missing")
@@ -1212,7 +1241,8 @@ def _manifest(
                 "operating_system": observed["operating_system"],
                 "host_compiler": observed["host_compiler"],
                 "cmake": observed["cmake"],
-                "ninja": observed["ninja"],
+                "ninja_distribution": observed["ninja_distribution"],
+                "ninja_binary": observed["ninja_binary"],
                 "cuda_toolkit": observed["cuda_toolkit"],
                 "nvcc": observed["nvcc"],
                 "cuda_runtime": observed["cuda_runtime"],

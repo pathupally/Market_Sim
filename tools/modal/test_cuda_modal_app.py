@@ -1,4 +1,5 @@
 from decimal import Decimal
+from importlib.metadata import PackageNotFoundError
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ from tools.modal.cuda_evidence import validate_manifest
 from tools.modal.cuda_modal_app import (
     LOCK,
     _configure_cuda,
+    _installed_distribution_version,
     _manifest,
     _profiler_capability,
     _read_cuda_toolkit_version,
@@ -129,7 +131,8 @@ def compile_result() -> dict[str, object]:
             "platform": "linux/amd64",
             "host_compiler": "gcc 13.2.0",
             "cmake": "3.30.5",
-            "ninja": "1.11.1.1",
+            "ninja_distribution": "1.11.1.1",
+            "ninja_binary": "1.11.1.git.kitware.jobserver-1",
             "cuda_toolkit": "12.6.3",
             "nvcc": "12.6.85",
         },
@@ -144,6 +147,34 @@ def compile_result() -> dict[str, object]:
 
 
 class ProductionManifestTests(unittest.TestCase):
+    def test_ninja_distribution_version_uses_installed_metadata(self) -> None:
+        with mock.patch(
+            "tools.modal.cuda_modal_app.distribution_version",
+            return_value="1.11.1.1",
+        ) as version:
+            self.assertEqual(
+                _installed_distribution_version("ninja"),
+                "1.11.1.1",
+            )
+        version.assert_called_once_with("ninja")
+
+    def test_ninja_distribution_version_rejects_missing_or_invalid_metadata(
+        self,
+    ) -> None:
+        with mock.patch(
+            "tools.modal.cuda_modal_app.distribution_version",
+            side_effect=PackageNotFoundError("ninja"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "distribution is missing"):
+                _installed_distribution_version("ninja")
+        for value in ("", True, None):
+            with self.subTest(value=value), mock.patch(
+                "tools.modal.cuda_modal_app.distribution_version",
+                return_value=value,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "version is missing"):
+                    _installed_distribution_version("ninja")
+
     def test_toolkit_version_uses_image_declaration_without_optional_json(
         self,
     ) -> None:
@@ -358,6 +389,27 @@ class ProductionManifestTests(unittest.TestCase):
                 source_bundle=source,
                 expected_call_id="fc-compile",
             )
+
+    def test_compile_result_distinguishes_ninja_distribution_and_binary(
+        self,
+    ) -> None:
+        for field, replacement in (
+            ("ninja_distribution", "1.11.1.git.kitware.jobserver-1"),
+            ("ninja_binary", "1.11.1.1"),
+            ("ninja_distribution", True),
+            ("ninja_binary", None),
+        ):
+            with self.subTest(field=field, replacement=replacement):
+                result = compile_result()
+                result["observed"][field] = replacement
+                with self.assertRaisesRegex(RuntimeError, field):
+                    _validate_compile_result(
+                        result,
+                        source_bundle=SimpleNamespace(
+                            commit=COMMIT, sha256=SOURCE_HASH
+                        ),
+                        expected_call_id="fc-compile",
+                    )
 
     def test_self_move_uses_indirection_not_direct_warning_pattern(self) -> None:
         root = Path(__file__).resolve().parents[2]

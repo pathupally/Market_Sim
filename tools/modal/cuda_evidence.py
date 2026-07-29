@@ -42,7 +42,8 @@ EXPECTED_REGISTRY_LOCK = {
 EXPECTED_TOOLCHAIN_LOCK = {
     "cuda": "12.6.3",
     "cmake": "3.30.5",
-    "ninja": "1.11.1.1",
+    "ninja_distribution": "1.11.1.1",
+    "ninja_binary": "1.11.1.git.kitware.jobserver-1",
     "cpp_standard": 20,
     "cuda_standard": 20,
     "cuda_architectures": [89],
@@ -325,7 +326,8 @@ def validate_manifest(
         {
             "cuda",
             "cmake",
-            "ninja",
+            "ninja_distribution",
+            "ninja_binary",
             "cpp_standard",
             "cuda_standard",
             "cuda_architectures",
@@ -431,7 +433,8 @@ def validate_manifest(
             "operating_system",
             "host_compiler",
             "cmake",
-            "ninja",
+            "ninja_distribution",
+            "ninja_binary",
             "cuda_toolkit",
             "nvcc",
             "cuda_runtime",
@@ -448,10 +451,14 @@ def validate_manifest(
     )
     exact_versions = {
         "cmake": toolchain_lock["cmake"],
-        "ninja": toolchain_lock["ninja"],
+        "ninja_distribution": toolchain_lock["ninja_distribution"],
+        "ninja_binary": toolchain_lock["ninja_binary"],
         "cuda_toolkit": toolchain_lock["cuda"],
     }
     for field, expected in exact_versions.items():
+        _nonempty_string(
+            observed[field], f"manifest.toolchain.observed.{field}"
+        )
         if observed[field] != expected:
             raise ValidationError(f"observed {field} mismatch")
     version_pattern = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}$")

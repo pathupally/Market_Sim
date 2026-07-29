@@ -48,7 +48,8 @@ The PR 6 gate uses the digest-qualified CUDA 12.6.3 Ubuntu 24.04 image in
 no-GPU compile stage and one L4 smoke stage. The second stage cannot run unless
 the first passes. Compute Sanitizer is a hard gate; Nsight Systems and Nsight
 Compute are probed and reported truthfully but are not required to be
-available.
+available. The lock distinguishes the installed `ninja_distribution`
+metadata version from the exact `ninja_binary` self-report and validates both.
 
 Month-to-date spend is mandatory. This pure Python dry run performs the
 combined-chain budget preflight. It does not import the Modal SDK, initialize
@@ -86,8 +87,8 @@ matching reservation.
 
 Accepted evidence is cached outside Git by exact commit and gate, so an
 unchanged accepted candidate is not billed twice. Failed attempts retain their
-conservative reservation. After three no-GPU failures, the frozen amendment
-raises the PR 6 cumulative compute ceiling to `$1.25` while preserving the
-60-minute ceiling, authorizing exactly one final full-chain reservation. Raw
-profiler captures remain in remote temporary storage and are deleted after
-structured capability verification.
+conservative reservation. After four no-GPU failures, the final frozen
+envelope permits at most three additional full-chain reservations under the PR
+6 cumulative `$2.00` and 120-minute ceilings. Raw profiler captures remain in
+remote temporary storage and are deleted after structured capability
+verification.
