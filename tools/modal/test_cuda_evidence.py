@@ -216,6 +216,12 @@ class CudaEvidenceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValidationError, field):
                     self.validate(manifest)
         manifest = valid_manifest()
+        manifest["toolchain"]["observed"]["ninja"] = (
+            manifest["toolchain"]["observed"].pop("ninja_distribution")
+        )
+        with self.assertRaisesRegex(ValidationError, "ninja_distribution"):
+            self.validate(manifest)
+        manifest = valid_manifest()
         manifest["profilers"]["nsys"]["availability"] = "available"
         with self.assertRaises(ValidationError):
             self.validate(manifest)

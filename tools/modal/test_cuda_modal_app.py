@@ -411,6 +411,19 @@ class ProductionManifestTests(unittest.TestCase):
                         expected_call_id="fc-compile",
                     )
 
+        result = compile_result()
+        result["observed"]["ninja"] = result["observed"].pop(
+            "ninja_distribution"
+        )
+        with self.assertRaisesRegex(RuntimeError, "toolchain evidence"):
+            _validate_compile_result(
+                result,
+                source_bundle=SimpleNamespace(
+                    commit=COMMIT, sha256=SOURCE_HASH
+                ),
+                expected_call_id="fc-compile",
+            )
+
     def test_self_move_uses_indirection_not_direct_warning_pattern(self) -> None:
         root = Path(__file__).resolve().parents[2]
         for relative in (
