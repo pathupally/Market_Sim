@@ -3,6 +3,7 @@
 #include "marketforge/cuda/cuda_stream.hpp"
 #include "marketforge/cuda/device_buffer.hpp"
 #include "marketforge/cuda/lifecycle_probe.hpp"
+#include "marketforge/cuda/rms_norm.hpp"
 
 static_assert(!std::is_copy_constructible_v<marketforge::cuda::CudaStream>);
 static_assert(!std::is_copy_assignable_v<marketforge::cuda::CudaStream>);

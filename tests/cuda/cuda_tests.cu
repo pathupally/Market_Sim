@@ -1,19 +1,31 @@
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <cuda_runtime_api.h>
 
 #include "cuda_internal.hpp"
+#include "marketforge/core/dtype.hpp"
+#include "marketforge/core/shape.hpp"
 #include "marketforge/core/status.hpp"
+#include "marketforge/core/tensor_view.hpp"
+#include "marketforge/cpu/operators.hpp"
 #include "marketforge/cuda/cuda_stream.hpp"
 #include "marketforge/cuda/device_buffer.hpp"
+#include "marketforge/cuda/rms_norm.hpp"
 #include "test_support.hpp"
 
 namespace {
 
 using marketforge::ErrorCode;
+using marketforge::MemoryKind;
+using marketforge::TensorView;
 using marketforge::cuda::CudaStream;
 using marketforge::cuda::DeviceBuffer;
 using marketforge::cuda::StreamHandle;
@@ -31,6 +43,87 @@ static_assert(std::is_nothrow_destructible_v<DeviceBuffer>);
 
 template <typename T> [[nodiscard]] T&& indirect_move(T& value) noexcept {
   return static_cast<T&&>(value);
+}
+
+void run_rms_norm_parity_case(const std::uint64_t rows,
+                              const std::uint64_t hidden_size,
+                              const bool in_place) {
+  const auto elements = static_cast<std::size_t>(rows * hidden_size);
+  std::vector<float> input(elements);
+  std::vector<float> weight(static_cast<std::size_t>(hidden_size));
+  for (std::size_t index = 0; index < input.size(); ++index) {
+    const auto centered = static_cast<std::int32_t>(index % 37) - 18;
+    input[index] = static_cast<float>(centered) * 0.0625F;
+  }
+  for (std::size_t index = 0; index < weight.size(); ++index) {
+    weight[index] = 0.75F + static_cast<float>(index % 17) * 0.03125F;
+  }
+  std::vector<float> expected(elements);
+  std::vector<float> observed(elements);
+  const std::array<std::uint64_t, 2> input_extents{rows, hidden_size};
+  const std::array<std::uint64_t, 1> weight_extents{hidden_size};
+  const auto input_shape = marketforge::make_shape(input_extents);
+  const auto weight_shape = marketforge::make_shape(weight_extents);
+  MF_CHECK(input_shape);
+  MF_CHECK(weight_shape);
+  MF_CHECK(marketforge::rms_norm_f32(
+               {
+                   input.data(),
+                   input_shape.value(),
+                   marketforge::DType::f32,
+                   MemoryKind::host,
+               },
+               {
+                   weight.data(),
+                   weight_shape.value(),
+                   marketforge::DType::f32,
+                   MemoryKind::host,
+               },
+               1.0e-5F,
+               TensorView{
+                   expected.data(),
+                   input_shape.value(),
+                   marketforge::DType::f32,
+                   MemoryKind::host,
+               })
+               .ok());
+
+  auto stream_result = CudaStream::create();
+  auto input_result = DeviceBuffer::allocate(elements * sizeof(float));
+  auto weight_result = DeviceBuffer::allocate(weight.size() * sizeof(float));
+  auto output_result =
+      DeviceBuffer::allocate(in_place ? 0 : elements * sizeof(float));
+  MF_CHECK(stream_result);
+  MF_CHECK(input_result);
+  MF_CHECK(weight_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer input_device = std::move(input_result).value();
+  DeviceBuffer weight_device = std::move(weight_result).value();
+  DeviceBuffer output_device =
+      in_place ? DeviceBuffer{} : std::move(output_result).value();
+  MF_CHECK(input_device
+               .copy_from_host_async(input.data(), elements * sizeof(float), 0,
+                                     stream.handle())
+               .ok());
+  MF_CHECK(weight_device
+               .copy_from_host_async(weight.data(),
+                                     weight.size() * sizeof(float), 0,
+                                     stream.handle())
+               .ok());
+  DeviceBuffer& destination = in_place ? input_device : output_device;
+  MF_CHECK(marketforge::cuda::rms_norm_f32(input_device, weight_device,
+                                           destination, rows, hidden_size,
+                                           1.0e-5F, stream.handle())
+               .ok());
+  MF_CHECK(destination
+               .copy_to_host_async(observed.data(), elements * sizeof(float), 0,
+                                   stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  for (std::size_t index = 0; index < elements; ++index) {
+    MF_CHECK_NEAR(observed[index], expected[index], 3.0e-5F);
+  }
 }
 
 MF_TEST(cuda_error_classification_preserves_numeric_detail) {
@@ -116,6 +209,48 @@ MF_TEST(cuda_move_and_copy_validation) {
       second.copy_to_host_async(nullptr, sizeof(value), 0, stream.handle())
           .code,
       ErrorCode::invalid_argument);
+}
+
+MF_TEST(cuda_rms_norm_matches_cpu_for_smollm2_and_boundary_shapes) {
+  run_rms_norm_parity_case(2, 1, false);
+  run_rms_norm_parity_case(3, 255, false);
+  run_rms_norm_parity_case(3, 256, false);
+  run_rms_norm_parity_case(3, 257, false);
+  run_rms_norm_parity_case(7, 576, false);
+  run_rms_norm_parity_case(2, 1024, true);
+}
+
+MF_TEST(cuda_rms_norm_rejects_invalid_metadata_before_launch) {
+  auto stream_result = CudaStream::create();
+  auto input_result = DeviceBuffer::allocate(8 * sizeof(float));
+  auto weight_result = DeviceBuffer::allocate(4 * sizeof(float));
+  auto output_result = DeviceBuffer::allocate(8 * sizeof(float));
+  MF_CHECK(stream_result);
+  MF_CHECK(input_result);
+  MF_CHECK(weight_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer input = std::move(input_result).value();
+  DeviceBuffer weight = std::move(weight_result).value();
+  DeviceBuffer output = std::move(output_result).value();
+
+  MF_CHECK_EQ(marketforge::cuda::rms_norm_f32(input, weight, output, 0, 4,
+                                              1.0e-5F, stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::rms_norm_f32(
+                  input, weight, output, 2, 4,
+                  std::numeric_limits<float>::quiet_NaN(), stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(
+      marketforge::cuda::rms_norm_f32(input, weight, output, 2, 4, 1.0e-5F, {})
+          .code,
+      ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::rms_norm_f32(input, weight, output, 1, 4,
+                                              1.0e-5F, stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
 }
 
 } // namespace

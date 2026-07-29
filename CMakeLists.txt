@@ -84,6 +84,7 @@ if(MARKETFORGE_ENABLE_CUDA)
     src/cuda/cuda_stream.cu
     src/cuda/device_buffer.cu
     src/cuda/lifecycle_probe.cu
+    src/cuda/rms_norm.cu
   )
   add_library(MarketForge::cuda ALIAS marketforge_cuda)
   target_compile_features(marketforge_cuda PUBLIC cxx_std_20 cuda_std_20)
@@ -217,7 +218,9 @@ if(BUILD_TESTING)
     )
     target_link_libraries(
       marketforge_cuda_unit_tests
-      PRIVATE MarketForge::cuda
+      PRIVATE
+        MarketForge::core
+        MarketForge::cuda
     )
     target_include_directories(
       marketforge_cuda_unit_tests
@@ -260,6 +263,30 @@ if(BUILD_TESTING)
         CUDA_STANDARD_REQUIRED ON
     )
     marketforge_set_warnings(marketforge_cuda_sanitizer_canary)
+
+    add_executable(
+      marketforge_cuda_rmsnorm_bench
+      src/tools/cuda_rmsnorm_bench.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_rmsnorm_bench
+      PRIVATE
+        MarketForge::cuda
+        CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_rmsnorm_bench
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_rmsnorm_bench
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_rmsnorm_bench)
 
     add_test(NAME marketforge.cuda.unit COMMAND marketforge_cuda_unit_tests)
     add_test(
