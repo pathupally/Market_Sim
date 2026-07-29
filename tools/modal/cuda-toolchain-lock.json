@@ -15,7 +15,32 @@
     "cuda_standard": 20,
     "cuda_architectures": [
       89
-    ]
+    ],
+    "compatibility_policy": {
+      "host_compiler": {
+        "identity": "gcc",
+        "major": 13
+      },
+      "nvcc": {
+        "identity": "nvcc",
+        "cuda_major": 12,
+        "cuda_minor": 6
+      },
+      "cuda_runtime": {
+        "identity": "cudart",
+        "cuda_major": 12,
+        "cuda_minor": 6
+      },
+      "driver": {
+        "identity": "nvidia-driver",
+        "minimum_cuda_api_major": 12,
+        "minimum_cuda_api_minor": 6
+      },
+      "cublas": {
+        "identity": "cublas",
+        "major": 12
+      }
+    }
   },
   "modal": {
     "sdk": "1.3.5",

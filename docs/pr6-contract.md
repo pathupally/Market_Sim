@@ -1,8 +1,14 @@
 # PR 6 contract: pinned CUDA lifecycle and bounded Modal evidence
 
-Status: frozen
+Status: frozen as amended
 
 Date: 2026-07-29
+
+Original freeze commit:
+`94df1fbe149bd3cdcc4c70be4cf63499b1a1a1bd`
+
+Original frozen-content SHA-256:
+`fd5e67b8914dd61438976cc228610c1ad9833218154617dc5bf36115e1d90db6`
 
 PR 6 proves one reproducible CUDA build/run boundary and correct ownership of a
 stream and byte-oriented device allocation. It is infrastructure work, not a
@@ -32,6 +38,26 @@ docker buildx imagetools inspect nvidia/cuda:12.6.3-devel-ubuntu24.04
 The machine-readable copy of this lock is
 `tools/modal/cuda-toolchain-lock.json`. The remote job must reject a mismatch
 between locked and observed toolkit, image, platform, or architecture evidence.
+
+### Compatibility-policy amendment (2026-07-29)
+
+Before implementation, the frozen lock was amended to distinguish versions
+that can be pinned before the remote image runs from versions that must be
+observed inside that image. The compatibility policy requires:
+
+- GCC identity with major version 13;
+- `nvcc` CUDA version 12.6;
+- CUDA runtime version 12.6;
+- an NVIDIA driver exposing CUDA driver API 12.6 or newer;
+- cuBLAS major version 12.
+
+This prerequisite amendment does not change the registry image, CUDA toolkit,
+GPU, architecture, resource limits, or acceptance workload. It is necessary
+because the image digest fixes those packaged components while the actual
+host-compiler, runtime, driver, and cuBLAS version strings are obtainable only
+from remote evidence. The schema therefore validates exact identities and
+compatible version boundaries without pretending that an unobserved patch
+version was pre-locked.
 
 ## Build boundary
 
