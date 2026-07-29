@@ -67,7 +67,8 @@ deterministic demonstration with:
 ./build/mac-debug/marketforge_market_trace
 ```
 
-See [the PR 5 evidence report](docs/pr5-report.md).
+See [the PR 5 evidence report](docs/pr5-report.md) and the
+[AGY-versus-Codex agent evaluation](docs/pr5-agent-evaluation.md).
 
 The canonical real-model conformance path verifies the supplied checkpoint
 against `models/model-lock.json`, hashes the fixture, and verifies that the
