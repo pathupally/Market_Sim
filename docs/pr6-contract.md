@@ -255,6 +255,39 @@ must not be treated as the sole authoritative source. This evidence-source
 change does not relax any image-digest, toolkit-version, runtime-version, or
 manifest-validation gate.
 
+### Ninja evidence and final retry-envelope amendment (2026-07-29)
+
+The preceding authorization for at most one fourth attempt was consumed by
+source commit `5d1f854`, Modal app `ap-hM0vkqoUi5zatemkJxM7iU`. That no-GPU
+attempt completed the remote compile and returned pass evidence, but the
+trusted local validator correctly rejected the Ninja field. The locked PyPI
+distribution remains exactly `ninja==1.11.1.1`, while the binary installed by
+that exact distribution self-reports
+`1.11.1.git.kitware.jobserver-1`. This self-report was reproduced locally from
+the pinned package. The attempt did not allocate an L4, cost `$0.00219111`, and
+left authoritative month-to-date spend at `$0.01410745`.
+
+Machine evidence must distinguish the dependency-distribution version from the
+tool's own binary version string. The dependency lock and installation pin
+remain exactly Ninja distribution version `1.11.1.1`; the toolchain lock,
+remote evidence, and validator must require the exact Ninja binary self-report
+`1.11.1.git.kitware.jobserver-1`. This amendment clarifies evidence semantics
+without relaxing or changing the dependency pin.
+
+After four failed full-chain reservations, the signed ledger conservatively
+holds `$1.009680` and 60 reserved L4 minutes, although no attempt has allocated
+an L4. The final PR 6 development envelope supersedes the preceding `$1.25`
+compute and 60-minute limits with a `$2.00` compute ceiling and a 120
+reserved-L4-minute ceiling. At most three additional full-chain attempts are
+authorized. Seven total reservations would consume `$1.766940` and 105
+reserved L4 minutes; an eighth would consume `$2.019360` and is therefore
+blocked by the compute ceiling even though it would equal 120 reserved L4
+minutes.
+
+The `$24` project software soft cap and untouched `$6` reserve remain
+unchanged and authoritative. No further PR 6 development-ceiling amendment is
+authorized without explicit user approval.
+
 Cache remote evidence by exact candidate commit and gate identifier. Never
 rerun an unchanged accepted remote gate.
 
