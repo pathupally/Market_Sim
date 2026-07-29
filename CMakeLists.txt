@@ -176,6 +176,13 @@ if(BUILD_TESTING)
 
   add_test(NAME marketforge.unit COMMAND marketforge_unit_tests)
   add_test(NAME marketforge.market_trace COMMAND marketforge_market_trace)
+  add_test(
+    NAME marketforge.warning_policy
+    COMMAND
+      "${CMAKE_COMMAND}"
+      -P
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/cmake/warning_policy.cmake"
+  )
 
   add_executable(
     marketforge_cuda_public_headers
