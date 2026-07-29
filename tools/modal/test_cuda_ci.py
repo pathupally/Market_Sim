@@ -16,6 +16,8 @@ from tools.modal.cuda_ci import (
     GATE_ID,
     GPU_COST_CEILING_USD,
     SourceBundle,
+    TRIAL_COMPUTE_CEILING_USD,
+    TRIAL_GPU_MINUTE_CEILING,
     TrialLedger,
     create_source_bundle,
     dry_run_manifest,
@@ -83,6 +85,8 @@ class CudaDispatchTests(unittest.TestCase):
         self.assertEqual(COMPILE_COST_CEILING_USD, Decimal("0.0210480"))
         self.assertEqual(GPU_COST_CEILING_USD, Decimal("0.2313720"))
         self.assertEqual(CHAIN_COST_CEILING_USD, Decimal("0.2524200"))
+        self.assertEqual(TRIAL_COMPUTE_CEILING_USD, Decimal("1.25"))
+        self.assertEqual(TRIAL_GPU_MINUTE_CEILING, Decimal("60"))
 
     def test_dry_run_has_complete_resources_and_dispatches_nothing(self) -> None:
         plan = dry_run_manifest(Decimal("0"))
@@ -93,6 +97,8 @@ class CudaDispatchTests(unittest.TestCase):
         )
         self.assertEqual(plan["ordered_stages"][1]["gpu"], "L4")
         self.assertEqual(plan["ordered_stages"][0]["memory_gib"], 4)
+        self.assertEqual(plan["budget"]["trial_compute_ceiling_usd"], "1.25")
+        self.assertEqual(plan["budget"]["trial_gpu_minute_ceiling"], "60")
 
     def test_combined_cost_equality_with_soft_cap_is_allowed(self) -> None:
         month_to_date = Decimal("24") - CHAIN_COST_CEILING_USD
@@ -449,7 +455,7 @@ class CudaDispatchTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 ledger.reserve(candidate_commit=commit, gate_id=GATE_ID)
             ledger.finish(first, passed=False)
-            for suffix in ("b", "c"):
+            for suffix in ("b", "c", "d"):
                 reservation = ledger.reserve(
                     candidate_commit=suffix * 40, gate_id=GATE_ID
                 )
@@ -461,7 +467,7 @@ class CudaDispatchTests(unittest.TestCase):
                     )
             with self.assertRaises(RuntimeError):
                 ledger.reserve(
-                    candidate_commit="d" * 40, gate_id=GATE_ID
+                    candidate_commit="e" * 40, gate_id=GATE_ID
                 )
 
     def test_trial_ledger_rejects_tampered_persisted_reservations(self) -> None:

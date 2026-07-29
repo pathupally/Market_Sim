@@ -13,6 +13,8 @@ from tools.modal.cuda_ci import (
     CHAIN_COST_CEILING_USD,
     COMPILE_TIMEOUT_SECONDS,
     GPU_TIMEOUT_SECONDS,
+    TRIAL_COMPUTE_CEILING_USD,
+    TRIAL_GPU_MINUTE_CEILING,
     strict_json_loads,
 )
 from tools.modal.modal_budget import (
@@ -678,7 +680,10 @@ def validate_manifest(
         raise ValidationError("maximum planned cost mismatch")
     if month_to_date + maximum > Decimal("24"):
         raise ValidationError("combined stages cross the project soft cap")
-    if actual > Decimal("1.00") or gpu_minutes > Decimal("60"):
+    if (
+        actual > TRIAL_COMPUTE_CEILING_USD
+        or gpu_minutes > TRIAL_GPU_MINUTE_CEILING
+    ):
         raise ValidationError("trial compute ceiling exceeded")
     compile_seconds = Decimal(
         str(stages["cuda_compile"]["wall_seconds"])

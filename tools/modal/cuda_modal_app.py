@@ -40,6 +40,7 @@ from tools.modal.cuda_ci import (
     dry_run_manifest,
     parse_cost,
     source_bundle_member_sha256,
+    strict_json_loads,
 )
 from tools.modal.cuda_evidence import validate_manifest
 from tools.modal.modal_budget import (
@@ -216,13 +217,63 @@ def _observe_registry_image() -> dict[str, str]:
     }
 
 
-def _read_cuda_toolkit_version() -> str:
-    version_file = Path("/usr/local/cuda/version.json")
-    value = json.loads(version_file.read_text(encoding="utf-8"))
-    cuda = value.get("cuda")
-    if type(cuda) is not dict or type(cuda.get("version")) is not str:
-        raise RuntimeError("CUDA version.json has an unexpected schema")
-    return cuda["version"]
+def _read_cuda_toolkit_version(
+    nvcc_version: str,
+    *,
+    environment: Any = None,
+    version_file: Path = Path("/usr/local/cuda/version.json"),
+) -> str:
+    """Read the image-declared toolkit version and verify independent evidence."""
+
+    effective_environment = os.environ if environment is None else environment
+    declared_version = effective_environment.get("CUDA_VERSION")
+    exact_pattern = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    nvcc_pattern = (
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+        r"(?:\.(?:0|[1-9][0-9]*))?"
+    )
+    if (
+        type(declared_version) is not str
+        or re.fullmatch(exact_pattern, declared_version) is None
+    ):
+        raise RuntimeError(
+            "pinned image CUDA_VERSION is missing or malformed"
+        )
+    if declared_version != LOCK["toolchain"]["cuda"]:
+        raise RuntimeError(
+            "pinned image CUDA_VERSION disagrees with the toolkit lock"
+        )
+    if (
+        type(nvcc_version) is not str
+        or re.fullmatch(nvcc_pattern, nvcc_version) is None
+    ):
+        raise RuntimeError("parsed nvcc version is malformed")
+    if declared_version.split(".")[:2] != nvcc_version.split(".")[:2]:
+        raise RuntimeError("CUDA_VERSION and nvcc CUDA versions disagree")
+
+    if version_file.exists():
+        try:
+            value = strict_json_loads(
+                version_file.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, ValueError) as error:
+            raise RuntimeError("CUDA version.json is malformed") from error
+        if type(value) is not dict:
+            raise RuntimeError("CUDA version.json has an unexpected schema")
+        cuda = value.get("cuda")
+        if type(cuda) is not dict:
+            raise RuntimeError("CUDA version.json has an unexpected schema")
+        json_version = cuda.get("version")
+        if (
+            type(json_version) is not str
+            or re.fullmatch(exact_pattern, json_version) is None
+        ):
+            raise RuntimeError("CUDA version.json has an unexpected schema")
+        if json_version != declared_version:
+            raise RuntimeError(
+                "CUDA version.json disagrees with CUDA_VERSION"
+            )
+    return declared_version
 
 
 def _compile_flags(build: Path) -> tuple[list[str], list[str]]:
@@ -568,6 +619,7 @@ def cuda_compile(
     platform_evidence = _observed_platform()
     cmake_line = _first_line(["cmake", "--version"])
     nvcc_text = str(_run(["/usr/local/cuda/bin/nvcc", "--version"])["output"])
+    nvcc_version = _version(r"V([0-9.]+)", nvcc_text, "nvcc")
     result = {
         "result": "pass",
         "candidate_commit": candidate_commit,
@@ -584,8 +636,8 @@ def cuda_compile(
             ),
             "cmake": _version(r"cmake version ([0-9.]+)", cmake_line, "CMake"),
             "ninja": _first_line(["ninja", "--version"]),
-            "cuda_toolkit": _read_cuda_toolkit_version(),
-            "nvcc": _version(r"V([0-9.]+)", nvcc_text, "nvcc"),
+            "cuda_toolkit": _read_cuda_toolkit_version(nvcc_version),
+            "nvcc": nvcc_version,
         },
         "compile_flags": cuda_checks["compile_flags"],
         "link_flags": cuda_checks["link_flags"],

@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -12,6 +13,7 @@ from tools.modal.cuda_modal_app import (
     _configure_cuda,
     _manifest,
     _profiler_capability,
+    _read_cuda_toolkit_version,
     _validate_compile_result,
     _validate_gpu_result,
     _verify_ncu_output,
@@ -142,6 +144,97 @@ def compile_result() -> dict[str, object]:
 
 
 class ProductionManifestTests(unittest.TestCase):
+    def test_toolkit_version_uses_image_declaration_without_optional_json(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "version.json"
+            with mock.patch.dict(
+                os.environ, {"CUDA_VERSION": "12.6.3"}, clear=True
+            ):
+                self.assertEqual(
+                    _read_cuda_toolkit_version(
+                        "12.6.85",
+                        version_file=missing,
+                    ),
+                    "12.6.3",
+                )
+
+    def test_toolkit_version_cross_checks_matching_optional_json(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            version_file = Path(directory) / "version.json"
+            version_file.write_text(
+                '{"cuda":{"name":"CUDA SDK","version":"12.6.3"}}',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                _read_cuda_toolkit_version(
+                    "12.6",
+                    environment={"CUDA_VERSION": "12.6.3"},
+                    version_file=version_file,
+                ),
+                "12.6.3",
+            )
+
+    def test_toolkit_version_rejects_missing_and_malformed_versions(
+        self,
+    ) -> None:
+        cases = (
+            ({}, "12.6"),
+            ({"CUDA_VERSION": ""}, "12.6"),
+            ({"CUDA_VERSION": "12.6"}, "12.6"),
+            ({"CUDA_VERSION": "12.6.03"}, "12.6"),
+            ({"CUDA_VERSION": "12.6.4"}, "12.6"),
+            ({"CUDA_VERSION": "12.6.3"}, ""),
+            ({"CUDA_VERSION": "12.6.3"}, "12"),
+            ({"CUDA_VERSION": "12.6.3"}, "12.06.85"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "version.json"
+            for environment, nvcc_version in cases:
+                with self.subTest(
+                    environment=environment, nvcc_version=nvcc_version
+                ):
+                    with self.assertRaises(RuntimeError):
+                        _read_cuda_toolkit_version(
+                            nvcc_version,
+                            environment=environment,
+                            version_file=missing,
+                        )
+
+    def test_toolkit_version_rejects_env_nvcc_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "nvcc"):
+                _read_cuda_toolkit_version(
+                    "12.7.1",
+                    environment={"CUDA_VERSION": "12.6.3"},
+                    version_file=Path(directory) / "version.json",
+                )
+
+    def test_toolkit_version_rejects_optional_json_mismatch_and_schema(
+        self,
+    ) -> None:
+        documents = (
+            '{"cuda":{"version":"12.6.4"}}',
+            "{}",
+            '{"cuda":[]}',
+            '{"cuda":{"version":12.63}}',
+            '{"cuda":{"version":"12.6"}}',
+            '{"cuda":{"version":"12.6.3","version":"12.6.3"}}',
+            "not-json",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            version_file = Path(directory) / "version.json"
+            for document in documents:
+                with self.subTest(document=document):
+                    version_file.write_text(document, encoding="utf-8")
+                    with self.assertRaises(RuntimeError):
+                        _read_cuda_toolkit_version(
+                            "12.6.85",
+                            environment={"CUDA_VERSION": "12.6.3"},
+                            version_file=version_file,
+                        )
+
     def test_production_manifest_round_trips_through_validator(self) -> None:
         source = SimpleNamespace(commit=COMMIT, sha256=SOURCE_HASH)
         dispatcher = SimpleNamespace(

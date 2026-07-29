@@ -86,6 +86,8 @@ matching reservation.
 
 Accepted evidence is cached outside Git by exact commit and gate, so an
 unchanged accepted candidate is not billed twice. Failed attempts retain their
-conservative reservation against the PR 6 cumulative `$1.00` and 60-minute
-ceilings. Raw profiler captures remain in remote temporary storage and are
-deleted after structured capability verification.
+conservative reservation. After three no-GPU failures, the frozen amendment
+raises the PR 6 cumulative compute ceiling to `$1.25` while preserving the
+60-minute ceiling, authorizing exactly one final full-chain reservation. Raw
+profiler captures remain in remote temporary storage and are deleted after
+structured capability verification.

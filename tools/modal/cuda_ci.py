@@ -44,7 +44,7 @@ GPU_KIND = "L4"
 MAX_CONTAINERS = 1
 CONCURRENCY = 1
 TRIAL_GPU_MINUTE_CEILING = Decimal("60")
-TRIAL_COMPUTE_CEILING_USD = Decimal("1.00")
+TRIAL_COMPUTE_CEILING_USD = Decimal("1.25")
 TRIAL_RESERVATION_GPU_MINUTES = Decimal("15")
 GATE_ID = "pr6-cuda-lifecycle-v1"
 
@@ -577,7 +577,9 @@ class TrialLedger:
                 Decimal("0"),
             )
             if spent + CHAIN_COST_CEILING_USD > TRIAL_COMPUTE_CEILING_USD:
-                raise RuntimeError("PR-6 cumulative $1 trial ceiling exhausted")
+                raise RuntimeError(
+                    "PR-6 cumulative $1.25 trial ceiling exhausted"
+                )
             if (
                 minutes + TRIAL_RESERVATION_GPU_MINUTES
                 > TRIAL_GPU_MINUTE_CEILING
