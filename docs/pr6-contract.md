@@ -216,6 +216,45 @@ soft cap. Modal billing reports and the Workspace budget remain authoritative;
 image construction and storage charges may not be represented by the function
 estimate.
 
+### Retry and toolkit-evidence amendment (2026-07-29)
+
+The preceding $1.00 trial compute ceiling is historical and is superseded
+narrowly by this amendment. Three no-GPU attempts failed before any L4
+allocation:
+
+- attempt 1, source commit `85ec687`, Modal app
+  `ap-oL8kepGh5hsJ7BIc8XCS0A`, failed because
+  GCC 13 rejected NVCC-generated line markers;
+- attempt 2, source commit `2713246`, Modal app
+  `ap-DyntjAXVGiGV0L9fdBQHnQ`, failed because
+  the replacement script did not set CMake policy `CMP0057`;
+- attempt 3, source commit `57d90f4`, Modal app
+  `ap-Qj6CMjxGE22AQqW2TOj1Z5`, completed the CUDA build and then failed
+  evidence collection because the pinned image does not contain the optional
+  `/usr/local/cuda/version.json` file.
+
+The signed trial ledger conservatively retains all three failed full-chain
+reservations, totaling `$0.757260` and 45 L4 minutes, even though none of the
+attempts allocated an L4. The authoritative month-to-date spend before attempt
+3 was `$0.01055264`.
+
+To permit exactly one final corrective run, the PR 6 harness-trial compute
+ceiling is raised from `$1.00` to `$1.25`; the 60 L4-GPU-minute ceiling is
+unchanged. At most one fourth attempt is authorized. Its full `$0.252420`
+reservation brings the conservative ledger total to `$1.009680` and the GPU
+reservation total to exactly 60 minutes. This amendment does not authorize a
+fifth attempt, crossing the project software soft cap of `$24`, or consuming
+the untouched `$6` reserve.
+
+For toolkit identity evidence, the exact locked CUDA toolkit version `12.6.3`
+may be obtained from the pinned image's declared `CUDA_VERSION` value. Evidence
+collection must cross-check that value against `nvcc` reporting CUDA 12.6 and,
+when the GPU stage runs, against the observed CUDA runtime compatibility
+evidence. The optional `/usr/local/cuda/version.json` file is not required and
+must not be treated as the sole authoritative source. This evidence-source
+change does not relax any image-digest, toolkit-version, runtime-version, or
+manifest-validation gate.
+
 Cache remote evidence by exact candidate commit and gate identifier. Never
 rerun an unchanged accepted remote gate.
 
