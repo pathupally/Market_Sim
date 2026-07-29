@@ -288,6 +288,45 @@ The `$24` project software soft cap and untouched `$6` reserve remain
 unchanged and authoritative. No further PR 6 development-ceiling amendment is
 authorized without explicit user approval.
 
+### Sanitizer compatibility incident and gate amendment (2026-07-29)
+
+Attempt 5 consumed the approved run for source commit `b266245`, Modal app
+`ap-Lb9S5ZQhAsABFP7vzLHfPZ`. The compile stage, GPU CTests, and plain L4
+lifecycle probe passed. The pinned CUDA 12.6 Compute Sanitizer then emitted
+`Device not supported`, followed by target error 999. The run produced no
+accepted manifest. Its actual app cost was `$0.01113827`, increasing
+authoritative month-to-date spend from `$0.01410745` to `$0.02524572`.
+
+The locked CUDA compiler and runtime remain exactly 12.6.3, and the canonical
+GPU remains one L4 at SM89. Sanitizer compatibility must be supplied
+additively by the separately pinned package
+`cuda-sanitizer-13-0=13.0.85-1`. Before installation, the package artifact
+must have SHA-256
+`5913520009ecc86be1c62b5793b032f81fdffdfcd4493da6212e14c3dc1f35a4`.
+The installed tool must self-report version `13.0.1` and must be invoked only
+at the exact path
+`/usr/local/cuda-13.0/compute-sanitizer/compute-sanitizer`. This additive tool
+must not replace or alter the locked CUDA 12.6.3 compiler, headers, runtime,
+image, or L4/SM89 execution target.
+
+In the same GPU container used for the production sanitizer run, two
+test-only negative controls must execute first. One must deliberately perform
+an invalid global write; the other must deliberately leak device memory. Each
+control must be detected by the pinned sanitizer, must identify its intended
+failure in structured evidence, and must exit with exactly the configured
+nonzero error-exit code 97. Only after both capability controls pass may the
+production lifecycle probe run for 100 repetitions under
+`--tool memcheck --leak-check full`. The production run must exit zero and
+report a zero-error summary. An unavailable sanitizer, an undetected negative
+control, any other exit behavior, or an unclean production run is a hard
+failure. There is no waiver, fallback tool, or plain-execution substitute.
+
+The frozen `$2.00` compute and 120 reserved-L4-minute ledger envelope remains
+unchanged. Five conservative full-chain reservations now total `$1.262100`
+and 75 reserved L4 minutes. Attempts 6 and 7 remain mathematically available
+within that envelope, but no further dispatch is authorized without explicit
+user approval.
+
 Cache remote evidence by exact candidate commit and gate identifier. Never
 rerun an unchanged accepted remote gate.
 
