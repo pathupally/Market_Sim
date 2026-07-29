@@ -5,12 +5,13 @@ stateful, short-output agents. Its demonstration workload is a small
 prediction-market simulation; the primary engineering work is inference
 scheduling, KV-cache ownership, constrained decoding, and CUDA performance.
 
-The implementation is complete through PR 4: portable tensor/model contracts,
-safe mapped SmolLM2 loading, a readable FP32 CPU decoder-layer oracle, and a
-small full-model orchestration path for pretokenized greedy decode. The locked
-30-layer checkpoint produces complete logits and margin-qualified greedy tokens
-that match a pinned PyTorch fixture. Repeated decode retains fixed runtime
-storage. CUDA is intentionally not enabled yet.
+The implementation is complete through PR 5: portable tensor/model contracts,
+safe mapped SmolLM2 loading, a readable FP32 CPU decoder-layer oracle,
+pretokenized full-model greedy decode, an immutable tokenizer-derived action
+DFA, and a deterministic integer-accounted market trace. The locked 30-layer
+checkpoint produces complete logits and margin-qualified greedy tokens that
+match a pinned PyTorch fixture. Repeated decode retains fixed runtime storage.
+CUDA is intentionally not enabled yet.
 
 ## Build on this Mac
 
@@ -42,6 +43,8 @@ BF16-mapped plus FP32-materialized CPU reference. See
 
 The locked 269 MB SmolLM2 checkpoint has been downloaded to the user cache and
 passed SHA-256 verification plus a full 30-layer metadata bind on this machine.
+Its 2,104,556-byte `tokenizer.json` is independently locked for opt-in offline
+action-catalog regeneration; no default test needs that external file.
 Qwen remains config-only; its 988 MB weight file is blocked by the default
 fetch manifest.
 
@@ -54,6 +57,17 @@ PR 4 adds a 590,600-byte full-logit fixture from explicit token IDs
 `[0, 1, 2, 3]`. The C++ FP32 path compares all 147,456 logits and exactly
 reproduces three greedy tokens without implementing tokenization. See
 [the PR 4 evidence report](docs/pr4-report.md).
+
+PR 5 compiles the finite 1,585-action market language with pinned Python
+tooling into checked-in token IDs. Native code consumes only immutable token
+tables and exposes semantic actions; it does not implement a tokenizer. Run the
+deterministic demonstration with:
+
+```sh
+./build/mac-debug/marketforge_market_trace
+```
+
+See [the PR 5 evidence report](docs/pr5-report.md).
 
 The canonical real-model conformance path verifies the supplied checkpoint
 against `models/model-lock.json`, hashes the fixture, and verifies that the

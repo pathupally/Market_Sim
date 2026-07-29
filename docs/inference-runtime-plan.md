@@ -3,9 +3,10 @@
 Status: canonical planning baseline
 Date: 2026-07-28
 
-Implementation is complete through PR 4. See `docs/pr1-report.md`,
-`docs/pr2-report.md`, `docs/pr3-report.md`, and `docs/pr4-report.md` for local,
-real-checkpoint, numerical-parity, memory-stability, and Modal Linux evidence.
+Implementation is complete through PR 5. See `docs/pr1-report.md`,
+`docs/pr2-report.md`, `docs/pr3-report.md`, `docs/pr4-report.md`, and
+`docs/pr5-report.md` for local, real-checkpoint, numerical-parity,
+memory-stability, finite-grammar, and deterministic-market evidence.
 Scope of this cycle: architecture plus detailed specifications for PRs 1–3 only
 
 ## Executive decision
@@ -1407,6 +1408,7 @@ PR 4 provides:
    evidence;
 8. no CUDA, Qwen weights, generic model registry, or performance claim.
 
-The next concrete pull request is **PR 5 — Token DFA and minimal market trace**.
-It may consume PR 4's token-ID/logit path, but it must keep the model runtime
-independent from tokenizer and market-specific policy code.
+PR 5 completed the immutable SmolLM2 token DFA and minimal deterministic market
+trace without adding a tokenizer to native code or market policy to
+`CpuSmolLm2`. The next concrete pull request is **PR 6 — Pinned CUDA/Modal job
+and RAII primitives**.

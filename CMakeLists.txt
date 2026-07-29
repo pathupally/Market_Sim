@@ -45,6 +45,41 @@ target_include_directories(
 marketforge_set_warnings(marketforge_core)
 marketforge_enable_sanitizers(marketforge_core)
 
+add_library(marketforge_grammar
+  src/grammar/action.cpp
+  src/grammar/action_dfa.cpp
+  src/grammar/smollm2_market_actions.cpp
+)
+add_library(MarketForge::grammar ALIAS marketforge_grammar)
+target_compile_features(marketforge_grammar PUBLIC cxx_std_20)
+target_include_directories(
+  marketforge_grammar
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
+)
+target_link_libraries(marketforge_grammar PUBLIC MarketForge::core)
+marketforge_set_warnings(marketforge_grammar)
+marketforge_enable_sanitizers(marketforge_grammar)
+
+add_library(marketforge_market
+  src/market/batch_market.cpp
+)
+add_library(MarketForge::market ALIAS marketforge_market)
+target_compile_features(marketforge_market PUBLIC cxx_std_20)
+target_include_directories(
+  marketforge_market
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
+)
+target_link_libraries(
+  marketforge_market
+  PUBLIC MarketForge::grammar
+)
+marketforge_set_warnings(marketforge_market)
+marketforge_enable_sanitizers(marketforge_market)
+
 if(APPLE)
   find_library(MARKETFORGE_ACCELERATE_FRAMEWORK Accelerate REQUIRED)
   target_compile_definitions(
@@ -75,6 +110,14 @@ target_link_libraries(
 marketforge_set_warnings(marketforge_smollm2_conformance)
 marketforge_enable_sanitizers(marketforge_smollm2_conformance)
 
+add_executable(marketforge_market_trace src/tools/market_trace.cpp)
+target_link_libraries(
+  marketforge_market_trace
+  PRIVATE MarketForge::market
+)
+marketforge_set_warnings(marketforge_market_trace)
+marketforge_enable_sanitizers(marketforge_market_trace)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(marketforge_unit_tests
@@ -82,11 +125,18 @@ if(BUILD_TESTING)
     tests/unit/core_tests.cpp
     tests/unit/cpu_operator_tests.cpp
     tests/unit/cpu_smollm2_tests.cpp
+    tests/unit/action_dfa_tests.cpp
     tests/unit/loader_tests.cpp
+    tests/unit/market_tests.cpp
     tests/unit/model_spec_tests.cpp
+    tests/property/action_dfa_properties.cpp
+    tests/property/market_properties.cpp
     tests/unit/test_main.cpp
   )
-  target_link_libraries(marketforge_unit_tests PRIVATE MarketForge::core)
+  target_link_libraries(
+    marketforge_unit_tests
+    PRIVATE MarketForge::market
+  )
   target_include_directories(
     marketforge_unit_tests
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
@@ -99,4 +149,5 @@ if(BUILD_TESTING)
   marketforge_enable_sanitizers(marketforge_unit_tests)
 
   add_test(NAME marketforge.unit COMMAND marketforge_unit_tests)
+  add_test(NAME marketforge.market_trace COMMAND marketforge_market_trace)
 endif()

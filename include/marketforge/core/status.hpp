@@ -14,6 +14,7 @@ enum class ErrorCode : std::uint16_t {
   invalid_alignment,
   allocation_failed,
   insufficient_memory,
+  insufficient_resources,
   io_error,
   invalid_format,
   invalid_utf8,

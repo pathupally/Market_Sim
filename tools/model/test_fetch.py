@@ -42,6 +42,14 @@ class ModelFetchTests(unittest.TestCase):
         qwen = fetch.select_model(manifest, "qwen2.5-0.5b-instruct")
         self.assertEqual(len(smol["revision"]), 40)
         self.assertLess(sum(item["size"] for item in smol["files"]), 300_000_000)
+        tokenizer = next(
+            item for item in smol["files"] if item["path"] == "tokenizer.json"
+        )
+        self.assertEqual(tokenizer["size"], 2_104_556)
+        self.assertEqual(
+            tokenizer["sha256"],
+            "9ca9acddb6525a194ec8ac7a87f24fbba7232a9a15ffa1af0c1224fcd888e47c",
+        )
         self.assertEqual([item["path"] for item in qwen["files"]], ["config.json"])
         self.assertFalse(qwen["deferred_weight"]["fetch_allowed"])
 
