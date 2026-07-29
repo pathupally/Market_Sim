@@ -1,0 +1,22 @@
+{
+  "scalar_f32": {
+    "dtype": "F32",
+    "shape": [],
+    "data_offsets": [0, 4]
+  },
+  "pair_f16": {
+    "dtype": "F16",
+    "shape": [2],
+    "data_offsets": [4, 8]
+  },
+  "empty_bf16": {
+    "dtype": "BF16",
+    "shape": [0, 3],
+    "data_offsets": [8, 8]
+  },
+  "one_i32": {
+    "dtype": "I32",
+    "shape": [1],
+    "data_offsets": [8, 12]
+  }
+}

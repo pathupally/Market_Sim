@@ -1,0 +1,87 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "MARKETFORGE_ENABLE_CUDA": "OFF",
+        "MARKETFORGE_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "mac-debug",
+      "inherits": "base",
+      "displayName": "macOS debug",
+      "binaryDir": "${sourceDir}/build/mac-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mac-sanitize",
+      "inherits": "base",
+      "displayName": "macOS ASan + UBSan",
+      "binaryDir": "${sourceDir}/build/mac-sanitize",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MARKETFORGE_ENABLE_SANITIZERS": "ON"
+      }
+    },
+    {
+      "name": "mac-release",
+      "inherits": "base",
+      "displayName": "macOS release",
+      "binaryDir": "${sourceDir}/build/mac-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "mac-debug",
+      "configurePreset": "mac-debug"
+    },
+    {
+      "name": "mac-sanitize",
+      "configurePreset": "mac-sanitize"
+    },
+    {
+      "name": "mac-release",
+      "configurePreset": "mac-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "mac-debug",
+      "configurePreset": "mac-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mac-sanitize",
+      "configurePreset": "mac-sanitize",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "mac-release",
+      "configurePreset": "mac-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

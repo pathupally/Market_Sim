@@ -1,0 +1,1 @@
+"""Pinned golden-fixture exporters."""

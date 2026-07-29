@@ -1,0 +1,15 @@
+.git
+.venv
+build
+build-*
+out
+models/cache
+models/*.bin
+models/*.gguf
+models/*.safetensors
+*.ncu-rep
+*.nsys-rep
+*.profdata
+*.profraw
+__pycache__
+*.pyc

@@ -1,0 +1,38 @@
+{
+  "checkpoint_sha256": "80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1",
+  "checkpoint_size": 269060552,
+  "computation": "BF16 checkpoint materialized to FP32; eager CPU forward",
+  "expected_tokens": [
+    198,
+    198,
+    504
+  ],
+  "fixture": "marketforge-pr4-smollm2-greedy-f32",
+  "fixture_sha256": "55ef87774be030957fd7fdbcc20d21c8d6c996b37cb10ca0f0e6b4d196093f3f",
+  "fixture_size": 590600,
+  "generator": "tools/golden/export_pr4_fixture.py",
+  "logit_margins": [
+    2.5587387084960938,
+    3.9894638061523438,
+    1.0127506256103516
+  ],
+  "model_repository": "HuggingFaceTB/SmolLM2-135M",
+  "model_revision": "93efa2f097d58c2a74874c7e644dbc9b0cee75a2",
+  "prompt_token_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "safetensors_version": "0.4.3",
+  "schema_version": 1,
+  "tokenization": "none; input is an explicit pretokenized integer fixture",
+  "tolerances": {
+    "greedy_tokens": "exact",
+    "logits_absolute": 0.0001,
+    "logits_relative": 1e-05,
+    "minimum_fixture_margin": 0.5
+  },
+  "torch_version": "2.3.1",
+  "transformers_version": "4.40.1"
+}

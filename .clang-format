@@ -1,0 +1,6 @@
+BasedOnStyle: LLVM
+Standard: c++20
+ColumnLimit: 80
+IndentWidth: 2
+PointerAlignment: Left
+SortIncludes: CaseSensitive

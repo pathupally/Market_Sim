@@ -1,0 +1,28 @@
+# Build trees
+/build/
+/build-*/
+/out/
+
+# Local model artifacts (weights are never committed)
+/models/cache/
+/models/*.safetensors
+/models/*.gguf
+/models/*.bin
+
+# Editor and platform files
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.idea/
+.vscode/
+compile_commands.json
+
+# Test and profiler artifacts
+*.profraw
+*.profdata
+*.nsys-rep
+*.ncu-rep
+
+# Raw agent transcripts
+/docs/codex-runs/
