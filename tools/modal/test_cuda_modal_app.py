@@ -1,7 +1,10 @@
 from decimal import Decimal
+import hashlib
 from importlib.metadata import PackageNotFoundError
 import os
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -10,12 +13,19 @@ from unittest import mock
 from tools.modal.cuda_ci import EvidenceCache, GATE_ID
 from tools.modal.cuda_evidence import validate_manifest
 from tools.modal.cuda_modal_app import (
+    GPU_BUILD,
     LOCK,
+    SANITIZER_IMAGE_INSTALL_COMMAND,
     _configure_cuda,
     _installed_distribution_version,
     _manifest,
+    _observe_compute_sanitizer,
+    _parse_production_sanitizer,
+    _parse_sanitizer_canary,
     _profiler_capability,
     _read_cuda_toolkit_version,
+    _require_exact_executable,
+    _run_compute_sanitizer_gate,
     _validate_compile_result,
     _validate_gpu_result,
     _verify_ncu_output,
@@ -25,6 +35,66 @@ from tools.modal.cuda_modal_app import (
 COMMIT = "c" * 40
 SOURCE_HASH = "a" * 64
 DEPENDENCY_HASH = "b" * 64
+SANITIZER_PATH = LOCK["compute_sanitizer"]["executable_path"]
+
+
+def sanitizer_command(target: str, arguments: list[str]) -> list[str]:
+    return [
+        SANITIZER_PATH,
+        "--tool",
+        "memcheck",
+        "--leak-check",
+        "full",
+        "--error-exitcode=97",
+        target,
+        *arguments,
+    ]
+
+
+def sanitizer_evidence() -> dict[str, object]:
+    invalid_command = sanitizer_command(
+        str(GPU_BUILD / "marketforge_cuda_sanitizer_canary"),
+        ["--mode", "invalid-global-write"],
+    )
+    leak_command = sanitizer_command(
+        str(GPU_BUILD / "marketforge_cuda_sanitizer_canary"),
+        ["--mode", "device-leak"],
+    )
+    production_command = sanitizer_command(
+        str(GPU_BUILD / "marketforge_cuda_probe"),
+        ["--repetitions", "100"],
+    )
+    return {
+        "identity": dict(LOCK["compute_sanitizer"]),
+        "canaries": {
+            "invalid_global_write": {
+                "mode": "invalid-global-write",
+                "command": invalid_command,
+                "result": "detected",
+                "exit_status": 97,
+                "error_summary_count": 1,
+                "evidence": "invalid __global__ write detected",
+                "output_sha256": "1" * 64,
+            },
+            "device_leak": {
+                "mode": "device-leak",
+                "command": leak_command,
+                "result": "detected",
+                "exit_status": 97,
+                "error_summary_count": 1,
+                "evidence": "256-byte device leak detected",
+                "output_sha256": "2" * 64,
+            },
+        },
+        "production": {
+            "command": production_command,
+            "result": "pass",
+            "exit_status": 0,
+            "error_summary_count": 0,
+            "evidence": "ERROR SUMMARY: 0 errors",
+            "output_sha256": "3" * 64,
+        },
+    }
 
 
 def profiler(name: str) -> dict[str, object]:
@@ -82,21 +152,7 @@ def gpu_result() -> dict[str, object]:
             "sentinels": "pass",
             "lifecycle_repetitions": 100,
         },
-        "compute_sanitizer": {
-            "command": [
-                "compute-sanitizer",
-                "--tool",
-                "memcheck",
-                "--leak-check",
-                "full",
-                "--error-exitcode=97",
-                "marketforge_cuda_probe",
-                "--repetitions",
-                "100",
-            ],
-            "result": "pass",
-            "exit_status": 0,
-        },
+        "compute_sanitizer": sanitizer_evidence(),
         "profilers": {"nsys": profiler("nsys"), "ncu": profiler("ncu")},
         "gpu": {
             "model": "L4",
@@ -147,6 +203,457 @@ def compile_result() -> dict[str, object]:
 
 
 class ProductionManifestTests(unittest.TestCase):
+    def test_import_has_no_process_or_network_side_effects(self) -> None:
+        script = """
+import socket
+import subprocess
+import urllib.request
+from unittest import mock
+
+def blocked(*args, **kwargs):
+    raise AssertionError("import attempted a process or network side effect")
+
+with (
+    mock.patch.object(subprocess, "run", side_effect=blocked),
+    mock.patch.object(urllib.request, "urlopen", side_effect=blocked),
+    mock.patch.object(socket, "create_connection", side_effect=blocked),
+):
+    import tools.modal.cuda_modal_app
+
+print("import-ok")
+"""
+        completed = subprocess.run(
+            [sys.executable, "-B", "-c", script],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertEqual(completed.stdout.strip(), "import-ok")
+
+    def test_image_install_command_is_exact_and_preserves_cuda_12(self) -> None:
+        sanitizer = LOCK["compute_sanitizer"]
+        command = SANITIZER_IMAGE_INSTALL_COMMAND
+        for value in (
+            f"{sanitizer['package_name']}={sanitizer['package_version']}",
+            sanitizer["package_sha256"],
+            sanitizer["executable_path"],
+            sanitizer["executable_sha256"],
+            str(sanitizer["executable_size_bytes"]),
+            "apt-get download",
+            "sha256sum --check --strict",
+            "dpkg --install",
+            'nvcc_before="$(/usr/local/cuda/bin/nvcc --version)"',
+            'test "$(/usr/local/cuda/bin/nvcc --version)" = "${nvcc_before}"',
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, command)
+        self.assertIn("readlink -f /usr/local/cuda", command)
+
+    def test_sanitizer_identity_observes_exact_package_and_binary(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "compute-sanitizer"
+            docs = root / "docs"
+            docs.mkdir(parents=True)
+            executable = root / "compute-sanitizer"
+            executable.write_bytes(b"locked executable")
+            executable.chmod(0o755)
+            version_file = docs / "VERSION"
+            version_file.write_text("13.0.1\n", encoding="utf-8")
+            locked = {
+                **LOCK["compute_sanitizer"],
+                "executable_path": str(executable),
+                "executable_size_bytes": executable.stat().st_size,
+                "executable_sha256": hashlib.sha256(
+                    executable.read_bytes()
+                ).hexdigest(),
+            }
+
+            def run(command: list[str], **_: object) -> dict[str, object]:
+                if command[:2] == ["dpkg-query", "--listfiles"]:
+                    output = f"{executable}\n{version_file}\n"
+                elif command[:3] == [
+                    "dpkg-query",
+                    "--show",
+                    "--showformat=${Version}",
+                ]:
+                    output = "13.0.85-1\n"
+                elif command[:3] == [
+                    "dpkg-query",
+                    "--show",
+                    "--showformat=${Architecture}",
+                ]:
+                    output = "amd64\n"
+                elif command[:3] == [
+                    "dpkg-query",
+                    "--show",
+                    "--showformat=${Status}",
+                ]:
+                    output = "install ok installed\n"
+                elif command == [str(executable), "--version"]:
+                    output = (
+                        "NVIDIA (R) Compute Sanitizer\n"
+                        "Copyright (c) NVIDIA Corporation\n"
+                        "Version 2025.3.1.0 (build 36400806) "
+                        "(public-release)\n"
+                    )
+                else:
+                    self.fail(f"unexpected command: {command}")
+                return {"output": output, "exit_status": 0}
+
+            with (
+                mock.patch(
+                    "tools.modal.cuda_modal_app.SANITIZER_LOCK", locked
+                ),
+                mock.patch(
+                    "tools.modal.cuda_modal_app._run", side_effect=run
+                ),
+            ):
+                self.assertEqual(_observe_compute_sanitizer(), locked)
+
+            def duplicate_ownership(
+                command: list[str], **kwargs: object
+            ) -> dict[str, object]:
+                result = run(command, **kwargs)
+                if command[:2] == ["dpkg-query", "--listfiles"]:
+                    result["output"] = (
+                        f"{executable}\n{executable}\n{version_file}\n"
+                    )
+                return result
+
+            with (
+                mock.patch(
+                    "tools.modal.cuda_modal_app.SANITIZER_LOCK", locked
+                ),
+                mock.patch(
+                    "tools.modal.cuda_modal_app._run",
+                    side_effect=duplicate_ownership,
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    RuntimeError, "uniquely package-owned"
+                ):
+                    _observe_compute_sanitizer()
+
+    def test_sanitizer_version_rejects_duplicate_or_malformed_output(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "compute-sanitizer"
+            docs = root / "docs"
+            docs.mkdir(parents=True)
+            executable = root / "compute-sanitizer"
+            executable.write_bytes(b"locked executable")
+            executable.chmod(0o755)
+            version_file = docs / "VERSION"
+            version_file.write_text("13.0.1\n", encoding="utf-8")
+            locked = {
+                **LOCK["compute_sanitizer"],
+                "executable_path": str(executable),
+                "executable_size_bytes": executable.stat().st_size,
+                "executable_sha256": hashlib.sha256(
+                    executable.read_bytes()
+                ).hexdigest(),
+            }
+            valid_header = "NVIDIA (R) Compute Sanitizer\n"
+            valid_version = (
+                "Version 2025.3.1.0 (build 36400806) (public-release)\n"
+            )
+            outputs = (
+                valid_version,
+                valid_header + valid_version + valid_version,
+                valid_header + valid_header + valid_version,
+                valid_header
+                + "Version 13.0.1 (build 36400806) (public-release)\n",
+            )
+
+            for version_output in outputs:
+                with self.subTest(version_output=version_output):
+                    def run(
+                        command: list[str], **_: object
+                    ) -> dict[str, object]:
+                        if command[:2] == ["dpkg-query", "--listfiles"]:
+                            output = f"{executable}\n{version_file}\n"
+                        elif command[:3] == [
+                            "dpkg-query",
+                            "--show",
+                            "--showformat=${Version}",
+                        ]:
+                            output = "13.0.85-1\n"
+                        elif command[:3] == [
+                            "dpkg-query",
+                            "--show",
+                            "--showformat=${Architecture}",
+                        ]:
+                            output = "amd64\n"
+                        elif command[:3] == [
+                            "dpkg-query",
+                            "--show",
+                            "--showformat=${Status}",
+                        ]:
+                            output = "install ok installed\n"
+                        else:
+                            output = version_output
+                        return {"output": output, "exit_status": 0}
+
+                    with (
+                        mock.patch(
+                            "tools.modal.cuda_modal_app.SANITIZER_LOCK",
+                            locked,
+                        ),
+                        mock.patch(
+                            "tools.modal.cuda_modal_app._run",
+                            side_effect=run,
+                        ),
+                    ):
+                        with self.assertRaises(RuntimeError):
+                            _observe_compute_sanitizer()
+
+    def test_canary_parsers_require_real_tool_diagnostics(self) -> None:
+        canary = str(GPU_BUILD / "marketforge_cuda_sanitizer_canary")
+        cases = {
+            "invalid-global-write": (
+                "MARKETFORGE_SANITIZER_CANARY "
+                "mode=invalid-global-write bytes=4\n"
+                "========= Invalid __global__ write of size 4 bytes\n"
+                "========= at invalid_global_write_kernel(int*)\n"
+                "========= ERROR SUMMARY: 1 error\n"
+            ),
+            "device-leak": (
+                "MARKETFORGE_SANITIZER_CANARY mode=device-leak bytes=256\n"
+                "========= Leaked 256 bytes at 0x1234\n"
+                "========= ERROR SUMMARY: 1 error\n"
+            ),
+        }
+        for mode, output in cases.items():
+            with self.subTest(mode=mode):
+                command = sanitizer_command(
+                    canary, ["--mode", mode]
+                )
+                evidence = _parse_sanitizer_canary(
+                    mode,
+                    command,
+                    {"exit_status": 97, "output": output},
+                )
+                self.assertEqual(evidence["result"], "detected")
+                self.assertEqual(
+                    evidence["output_sha256"],
+                    hashlib.sha256(output.encode("utf-8")).hexdigest(),
+                )
+
+        valid = cases["invalid-global-write"]
+        for replacement in (
+            valid.replace(
+                "Invalid __global__ write of size 4 bytes",
+                "Device not supported",
+            ),
+            valid + "========= Insufficient permissions\n",
+            valid + "========= Internal error\n",
+            valid + "========= Error 999\n",
+            valid + "========= Errors 999\n",
+            valid.replace(
+                "========= Invalid __global__ write",
+                "= Invalid __global__ write",
+            ),
+            (
+                "MARKETFORGE_SANITIZER_CANARY "
+                "mode=invalid-global-write bytes=4\n"
+                "========= ERROR SUMMARY: 1 error\n"
+            ),
+        ):
+            with self.subTest(replacement=replacement):
+                with self.assertRaises(RuntimeError):
+                    _parse_sanitizer_canary(
+                        "invalid-global-write",
+                        sanitizer_command(
+                            canary,
+                            ["--mode", "invalid-global-write"],
+                        ),
+                        {"exit_status": 97, "output": replacement},
+                    )
+
+    def test_production_parser_requires_clean_instrumented_probe(self) -> None:
+        command = sanitizer_command(
+            str(GPU_BUILD / "marketforge_cuda_probe"),
+            ["--repetitions", "100"],
+        )
+        output = (
+            '{"schema_version":1,"result":"pass",'
+            '"known_answer_lengths":[0,1,255,256,257,1025],'
+            '"sentinels":"pass","lifecycle_repetitions":100}\n'
+            "========= ERROR SUMMARY: 0 errors\n"
+        )
+        probe, evidence = _parse_production_sanitizer(
+            command, {"exit_status": 0, "output": output}
+        )
+        self.assertEqual(probe["lifecycle_repetitions"], 100)
+        self.assertEqual(evidence["error_summary_count"], 0)
+        with self.assertRaises(RuntimeError):
+            _parse_production_sanitizer(
+                command,
+                {
+                    "exit_status": 0,
+                    "output": output + "========= Device not supported\n",
+                },
+            )
+
+    def test_sanitizer_gate_short_circuits_after_first_canary_failure(
+        self,
+    ) -> None:
+        with (
+            mock.patch(
+                "tools.modal.cuda_modal_app._observe_compute_sanitizer",
+                return_value=dict(LOCK["compute_sanitizer"]),
+            ),
+            mock.patch(
+                "tools.modal.cuda_modal_app._run_sanitizer_canary",
+                side_effect=RuntimeError("canary failed"),
+            ) as canary,
+            mock.patch("tools.modal.cuda_modal_app._run") as run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "canary failed"):
+                _run_compute_sanitizer_gate(
+                    GPU_BUILD / "marketforge_cuda_probe",
+                    GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+                )
+        self.assertEqual(canary.call_count, 1)
+        run.assert_not_called()
+
+    def test_sanitizer_gate_short_circuits_after_second_canary_failure(
+        self,
+    ) -> None:
+        invalid_write = sanitizer_evidence()["canaries"][
+            "invalid_global_write"
+        ]
+        with (
+            mock.patch(
+                "tools.modal.cuda_modal_app._observe_compute_sanitizer",
+                return_value=dict(LOCK["compute_sanitizer"]),
+            ),
+            mock.patch(
+                "tools.modal.cuda_modal_app._run_sanitizer_canary",
+                side_effect=[
+                    invalid_write,
+                    RuntimeError("leak canary failed"),
+                ],
+            ) as canary,
+            mock.patch("tools.modal.cuda_modal_app._run") as run,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "leak canary failed"):
+                _run_compute_sanitizer_gate(
+                    GPU_BUILD / "marketforge_cuda_probe",
+                    GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+                )
+        self.assertEqual(
+            [call.args[1] for call in canary.call_args_list],
+            ["invalid-global-write", "device-leak"],
+        )
+        run.assert_not_called()
+
+    def test_sanitizer_gate_runs_identity_canaries_and_production_in_order(
+        self,
+    ) -> None:
+        events: list[object] = []
+        fixture = sanitizer_evidence()
+
+        def observe() -> dict[str, object]:
+            events.append("identity")
+            return dict(LOCK["compute_sanitizer"])
+
+        def run_canary(
+            executable: Path, mode: str
+        ) -> dict[str, object]:
+            events.append((mode, executable))
+            key = (
+                "invalid_global_write"
+                if mode == "invalid-global-write"
+                else "device_leak"
+            )
+            return fixture["canaries"][key]
+
+        production_output = (
+            '{"schema_version":1,"result":"pass",'
+            '"known_answer_lengths":[0,1,255,256,257,1025],'
+            '"sentinels":"pass","lifecycle_repetitions":100}\n'
+            "========= ERROR SUMMARY: 0 errors\n"
+        )
+
+        def run(
+            command: list[str], **_: object
+        ) -> dict[str, object]:
+            events.append(("production", command))
+            return {"exit_status": 0, "output": production_output}
+
+        with (
+            mock.patch(
+                "tools.modal.cuda_modal_app._observe_compute_sanitizer",
+                side_effect=observe,
+            ),
+            mock.patch(
+                "tools.modal.cuda_modal_app._run_sanitizer_canary",
+                side_effect=run_canary,
+            ),
+            mock.patch(
+                "tools.modal.cuda_modal_app._run",
+                side_effect=run,
+            ),
+        ):
+            probe, evidence = _run_compute_sanitizer_gate(
+                GPU_BUILD / "marketforge_cuda_probe",
+                GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+            )
+
+        self.assertEqual(probe["lifecycle_repetitions"], 100)
+        self.assertEqual(evidence["production"]["result"], "pass")
+        self.assertEqual(
+            events,
+            [
+                "identity",
+                (
+                    "invalid-global-write",
+                    GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+                ),
+                (
+                    "device-leak",
+                    GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+                ),
+                (
+                    "production",
+                    sanitizer_command(
+                        str(GPU_BUILD / "marketforge_cuda_probe"),
+                        ["--repetitions", "100"],
+                    ),
+                ),
+            ],
+        )
+
+    def test_runtime_targets_must_be_exact_regular_executables(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "probe"
+            executable.write_bytes(b"executable")
+            executable.chmod(0o755)
+            _require_exact_executable(executable, executable)
+
+            with self.assertRaises(RuntimeError):
+                _require_exact_executable(executable, root / "other")
+
+            symlink = root / "probe-link"
+            symlink.symlink_to(executable)
+            with self.assertRaises(RuntimeError):
+                _require_exact_executable(symlink, symlink)
+
+            non_executable = root / "not-executable"
+            non_executable.write_bytes(b"not executable")
+            non_executable.chmod(0o644)
+            with self.assertRaises(RuntimeError):
+                _require_exact_executable(non_executable, non_executable)
+
     def test_ninja_distribution_version_uses_installed_metadata(self) -> None:
         with mock.patch(
             "tools.modal.cuda_modal_app.distribution_version",
@@ -336,6 +843,129 @@ class ProductionManifestTests(unittest.TestCase):
                 expected_call_id="fc-gpu",
                 compile_call_id="fc-gpu",
             )
+
+    def test_gpu_result_requires_versioned_sanitizer_capability(self) -> None:
+        source = SimpleNamespace(commit=COMMIT, sha256=SOURCE_HASH)
+        _validate_gpu_result(
+            gpu_result(),
+            source_bundle=source,
+            expected_call_id="fc-gpu",
+            compile_call_id="fc-compile",
+        )
+
+        identity_mutations = (
+            ("package_version", "13.0.1"),
+            ("toolkit_docs_release", "13.0.85-1"),
+            ("executable_version", "13.0.1"),
+            ("executable_build", True),
+            ("release_channel", None),
+            ("package_sha256", "A" * 64),
+            ("executable_sha256", "f" * 63),
+            ("executable_size_bytes", True),
+            ("executable_path", "compute-sanitizer"),
+            ("package_status", "not-installed"),
+        )
+        for field, replacement in identity_mutations:
+            with self.subTest(field=field, replacement=replacement):
+                result = gpu_result()
+                result["compute_sanitizer"]["identity"][field] = replacement
+                with self.assertRaisesRegex(RuntimeError, field):
+                    _validate_gpu_result(
+                        result,
+                        source_bundle=source,
+                        expected_call_id="fc-gpu",
+                        compile_call_id="fc-compile",
+                    )
+
+        for first, second in (
+            ("package_version", "executable_version"),
+            ("package_sha256", "executable_sha256"),
+        ):
+            with self.subTest(swapped=(first, second)):
+                result = gpu_result()
+                identity = result["compute_sanitizer"]["identity"]
+                identity[first], identity[second] = (
+                    identity[second],
+                    identity[first],
+                )
+                with self.assertRaises(RuntimeError):
+                    _validate_gpu_result(
+                        result,
+                        source_bundle=source,
+                        expected_call_id="fc-gpu",
+                        compile_call_id="fc-compile",
+                    )
+
+        result = gpu_result()
+        result["compute_sanitizer"] = {
+            "command": ["compute-sanitizer"],
+            "result": "pass",
+            "exit_status": 0,
+        }
+        with self.assertRaisesRegex(RuntimeError, "schema"):
+            _validate_gpu_result(
+                result,
+                source_bundle=source,
+                expected_call_id="fc-gpu",
+                compile_call_id="fc-compile",
+            )
+
+        mutations = (
+            ("missing-canary", None),
+            ("extra-canary", None),
+            ("false-success", 0),
+            ("bool-exit", True),
+            ("bool-count", True),
+            ("wrong-fault", "wrong"),
+            ("wrong-path", "compute-sanitizer"),
+            ("wrong-target", "/tmp/other/marketforge_cuda_probe"),
+            ("duplicate-output", "2" * 64),
+            ("production-output-reuse", "1" * 64),
+            ("production-errors", 1),
+        )
+        for mutation, replacement in mutations:
+            with self.subTest(mutation=mutation):
+                result = gpu_result()
+                sanitizer = result["compute_sanitizer"]
+                if mutation == "missing-canary":
+                    del sanitizer["canaries"]["device_leak"]
+                elif mutation == "extra-canary":
+                    sanitizer["canaries"]["extra"] = dict(
+                        sanitizer["canaries"]["device_leak"]
+                    )
+                elif mutation == "false-success":
+                    sanitizer["canaries"]["invalid_global_write"][
+                        "exit_status"
+                    ] = replacement
+                elif mutation == "bool-exit":
+                    sanitizer["production"]["exit_status"] = replacement
+                elif mutation == "bool-count":
+                    sanitizer["canaries"]["device_leak"][
+                        "error_summary_count"
+                    ] = replacement
+                elif mutation == "wrong-fault":
+                    sanitizer["canaries"]["device_leak"][
+                        "evidence"
+                    ] = replacement
+                elif mutation == "wrong-path":
+                    sanitizer["production"]["command"][0] = replacement
+                elif mutation == "wrong-target":
+                    sanitizer["production"]["command"][6] = replacement
+                elif mutation == "duplicate-output":
+                    sanitizer["canaries"]["invalid_global_write"][
+                        "output_sha256"
+                    ] = replacement
+                elif mutation == "production-output-reuse":
+                    sanitizer["production"]["output_sha256"] = replacement
+                else:
+                    sanitizer["production"]["error_summary_count"] = replacement
+                with self.assertRaises(RuntimeError):
+                    _validate_gpu_result(
+                        result,
+                        source_bundle=source,
+                        expected_call_id="fc-gpu",
+                        compile_call_id="fc-compile",
+                    )
 
     def test_no_gpu_compile_stage_excludes_gpu_runtime_ctests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -14,6 +14,68 @@ HASH_B = "b" * 64
 COMMIT = "c" * 40
 INDEX = LOCK["registry_image"]["index_digest"]
 AMD64 = LOCK["registry_image"]["linux_amd64_digest"]
+SANITIZER_PATH = LOCK["compute_sanitizer"]["executable_path"]
+
+
+def sanitizer_evidence() -> dict[str, object]:
+    common = [
+        SANITIZER_PATH,
+        "--tool",
+        "memcheck",
+        "--leak-check",
+        "full",
+        "--error-exitcode=97",
+    ]
+    canary = (
+        "/tmp/marketforge-build-gpu/"
+        "marketforge_cuda_sanitizer_canary"
+    )
+    return {
+        "identity": deepcopy(LOCK["compute_sanitizer"]),
+        "canaries": {
+            "invalid_global_write": {
+                "mode": "invalid-global-write",
+                "command": [
+                    *common,
+                    canary,
+                    "--mode",
+                    "invalid-global-write",
+                ],
+                "result": "detected",
+                "exit_status": 97,
+                "error_summary_count": 1,
+                "evidence": "invalid __global__ write detected",
+                "output_sha256": "1" * 64,
+            },
+            "device_leak": {
+                "mode": "device-leak",
+                "command": [
+                    *common,
+                    canary,
+                    "--mode",
+                    "device-leak",
+                ],
+                "result": "detected",
+                "exit_status": 97,
+                "error_summary_count": 1,
+                "evidence": "256-byte device leak detected",
+                "output_sha256": "2" * 64,
+            },
+        },
+        "production": {
+            "command": [
+                *common,
+                "/tmp/marketforge-build-gpu/marketforge_cuda_probe",
+                "--repetitions",
+                "100",
+            ],
+            "result": "pass",
+            "exit_status": 0,
+            "error_summary_count": 0,
+            "evidence": "ERROR SUMMARY: 0 errors",
+            "output_sha256": "3" * 64,
+        },
+    }
 
 
 def valid_manifest() -> dict[str, object]:
@@ -93,21 +155,7 @@ def valid_manifest() -> dict[str, object]:
             "sentinels": "pass",
             "lifecycle_repetitions": 100,
         },
-        "compute_sanitizer": {
-            "command": [
-                "compute-sanitizer",
-                "--tool",
-                "memcheck",
-                "--leak-check",
-                "full",
-                "--error-exitcode=97",
-                "marketforge_cuda_probe",
-                "--repetitions",
-                "100",
-            ],
-            "result": "pass",
-            "exit_status": 0,
-        },
+        "compute_sanitizer": sanitizer_evidence(),
         "profilers": {
             "nsys": {
                 "availability": "unavailable",
@@ -228,9 +276,113 @@ class CudaEvidenceTests(unittest.TestCase):
 
     def test_claimed_pass_without_hard_evidence_is_rejected(self) -> None:
         manifest = valid_manifest()
-        manifest["compute_sanitizer"]["result"] = "fail"
+        manifest["compute_sanitizer"]["production"]["result"] = "fail"
         with self.assertRaises(ValidationError):
             self.validate(manifest)
+
+    def test_sanitizer_identity_canaries_and_exact_commands_are_required(
+        self,
+    ) -> None:
+        identity_mutations = (
+            ("package_version", "13.0.1"),
+            ("package_architecture", "arm64"),
+            ("package_status", "unknown ok not-installed"),
+            ("package_sha256", "A" * 64),
+            ("toolkit_docs_release", "13.0.85-1"),
+            ("executable_path", "compute-sanitizer"),
+            ("executable_version", "13.0.1"),
+            ("executable_build", True),
+            ("release_channel", None),
+            ("executable_size_bytes", True),
+            ("executable_sha256", "f" * 63),
+        )
+        for field, replacement in identity_mutations:
+            with self.subTest(field=field, replacement=replacement):
+                manifest = valid_manifest()
+                manifest["compute_sanitizer"]["identity"][
+                    field
+                ] = replacement
+                with self.assertRaisesRegex(ValidationError, field):
+                    self.validate(manifest)
+
+        for first, second in (
+            ("package_version", "executable_version"),
+            ("package_sha256", "executable_sha256"),
+        ):
+            with self.subTest(swapped=(first, second)):
+                manifest = valid_manifest()
+                identity = manifest["compute_sanitizer"]["identity"]
+                identity[first], identity[second] = (
+                    identity[second],
+                    identity[first],
+                )
+                with self.assertRaises(ValidationError):
+                    self.validate(manifest)
+
+        manifest = valid_manifest()
+        manifest["compute_sanitizer"] = {
+            "command": ["compute-sanitizer"],
+            "result": "pass",
+            "exit_status": 0,
+        }
+        with self.assertRaises(ValidationError):
+            self.validate(manifest)
+
+        mutations = (
+            "missing-canary",
+            "extra-canary",
+            "false-success",
+            "bool-exit",
+            "bool-count",
+            "wrong-fault",
+            "wrong-path",
+            "wrong-target",
+            "duplicate-output",
+            "production-output-reuse",
+            "production-errors",
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                manifest = valid_manifest()
+                sanitizer = manifest["compute_sanitizer"]
+                if mutation == "missing-canary":
+                    del sanitizer["canaries"]["device_leak"]
+                elif mutation == "extra-canary":
+                    sanitizer["canaries"]["extra"] = deepcopy(
+                        sanitizer["canaries"]["device_leak"]
+                    )
+                elif mutation == "false-success":
+                    sanitizer["canaries"]["invalid_global_write"][
+                        "exit_status"
+                    ] = 0
+                elif mutation == "bool-exit":
+                    sanitizer["production"]["exit_status"] = True
+                elif mutation == "bool-count":
+                    sanitizer["canaries"]["device_leak"][
+                        "error_summary_count"
+                    ] = True
+                elif mutation == "wrong-fault":
+                    sanitizer["canaries"]["device_leak"][
+                        "evidence"
+                    ] = "invalid __global__ write detected"
+                elif mutation == "wrong-path":
+                    sanitizer["production"]["command"][0] = (
+                        "compute-sanitizer"
+                    )
+                elif mutation == "wrong-target":
+                    sanitizer["production"]["command"][6] = (
+                        "/tmp/other/marketforge_cuda_probe"
+                    )
+                elif mutation == "duplicate-output":
+                    sanitizer["canaries"]["invalid_global_write"][
+                        "output_sha256"
+                    ] = "2" * 64
+                elif mutation == "production-output-reuse":
+                    sanitizer["production"]["output_sha256"] = "1" * 64
+                else:
+                    sanitizer["production"]["error_summary_count"] = 1
+                with self.assertRaises(ValidationError):
+                    self.validate(manifest)
 
     def test_mutated_frozen_lock_is_rejected_even_if_manifest_agrees(self) -> None:
         mutations = (
@@ -240,15 +392,23 @@ class CudaEvidenceTests(unittest.TestCase):
             ("toolchain", "cmake", "3.31.0"),
             ("toolchain", "ninja_distribution", "1.11.1"),
             ("toolchain", "ninja_binary", "1.11.1"),
+            ("compute_sanitizer", "package_version", "13.0.1"),
+            ("compute_sanitizer", "executable_version", "13.0.1"),
+            ("compute_sanitizer", "executable_sha256", "f" * 64),
             ("modal", "gpu", "T4"),
         )
         for section, field, replacement in mutations:
             with self.subTest(section=section, field=field):
                 lock = deepcopy(LOCK)
                 lock[section][field] = replacement
+                manifest = valid_manifest()
+                if section == "compute_sanitizer":
+                    manifest["compute_sanitizer"]["identity"] = deepcopy(
+                        lock[section]
+                    )
                 with self.assertRaises(ValidationError):
                     validate_manifest(
-                        valid_manifest(),
+                        manifest,
                         lock,
                         expected_source_commit=COMMIT,
                         expected_source_bundle_sha256=HASH_A,

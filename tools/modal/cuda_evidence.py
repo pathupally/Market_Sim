@@ -67,6 +67,26 @@ EXPECTED_TOOLCHAIN_LOCK = {
         "cublas": {"identity": "cublas", "major": 12},
     },
 }
+EXPECTED_SANITIZER_LOCK = {
+    "package_name": "cuda-sanitizer-13-0",
+    "package_version": "13.0.85-1",
+    "package_architecture": "amd64",
+    "package_status": "install ok installed",
+    "package_sha256": (
+        "5913520009ecc86be1c62b5793b032f81fdffdfcd4493da6212e14c3dc1f35a4"
+    ),
+    "toolkit_docs_release": "13.0.1",
+    "executable_path": (
+        "/usr/local/cuda-13.0/compute-sanitizer/compute-sanitizer"
+    ),
+    "executable_version": "2025.3.1.0",
+    "executable_build": "36400806",
+    "release_channel": "public-release",
+    "executable_size_bytes": 7847200,
+    "executable_sha256": (
+        "3a75361c1b93f05c5247323b36300dc974dca967ae4344e0659df568724e4335"
+    ),
+}
 EXPECTED_MODAL_LOCK = {"sdk": "1.3.5", "gpu": "L4", "max_containers": 1}
 
 
@@ -232,6 +252,155 @@ def _validate_profiler(value: object, path: str) -> None:
             raise ValidationError(f"{path} counter evidence is not numeric")
 
 
+def _validate_compute_sanitizer(
+    value: object,
+    lock: dict[str, Any],
+) -> None:
+    path = "manifest.compute_sanitizer"
+    sanitizer = _object(
+        value,
+        path,
+        {"identity", "canaries", "production"},
+    )
+    identity = _object(
+        sanitizer["identity"],
+        f"{path}.identity",
+        set(EXPECTED_SANITIZER_LOCK),
+    )
+    for field in EXPECTED_SANITIZER_LOCK:
+        field_path = f"{path}.identity.{field}"
+        if field == "executable_size_bytes":
+            _value_type(identity[field], int, field_path)
+            if identity[field] <= 0:
+                raise ValidationError(f"{field_path} must be positive")
+        else:
+            _nonempty_string(identity[field], field_path)
+        if not _exact_json_equal(identity[field], lock[field]):
+            raise ValidationError(f"{field_path} disagrees with lock")
+    _sha256(identity["package_sha256"], f"{path}.identity.package_sha256")
+    _sha256(
+        identity["executable_sha256"],
+        f"{path}.identity.executable_sha256",
+    )
+    canaries = _object(
+        sanitizer["canaries"],
+        f"{path}.canaries",
+        {"invalid_global_write", "device_leak"},
+    )
+    expected_canaries = {
+        "invalid_global_write": (
+            "invalid-global-write",
+            "invalid __global__ write detected",
+        ),
+        "device_leak": (
+            "device-leak",
+            "256-byte device leak detected",
+        ),
+    }
+    common_prefix = [
+        lock["executable_path"],
+        "--tool",
+        "memcheck",
+        "--leak-check",
+        "full",
+        "--error-exitcode=97",
+    ]
+    output_hashes: set[str] = set()
+    for name, (mode, expected_evidence) in expected_canaries.items():
+        canary_path = f"{path}.canaries.{name}"
+        canary = _object(
+            canaries[name],
+            canary_path,
+            {
+                "mode",
+                "command",
+                "result",
+                "exit_status",
+                "error_summary_count",
+                "evidence",
+                "output_sha256",
+            },
+        )
+        command = _string_list(canary["command"], f"{canary_path}.command")
+        _value_type(canary["exit_status"], int, f"{canary_path}.exit_status")
+        _value_type(
+            canary["error_summary_count"],
+            int,
+            f"{canary_path}.error_summary_count",
+        )
+        output_sha256 = _sha256(
+            canary["output_sha256"],
+            f"{canary_path}.output_sha256",
+        )
+        if (
+            len(command) != 9
+            or command[:6] != common_prefix
+            or command[6]
+            != (
+                "/tmp/marketforge-build-gpu/"
+                "marketforge_cuda_sanitizer_canary"
+            )
+            or command[7:] != ["--mode", mode]
+            or canary["mode"] != mode
+            or canary["result"] != "detected"
+            or canary["exit_status"] != 97
+            or canary["error_summary_count"] <= 0
+            or canary["evidence"] != expected_evidence
+        ):
+            raise ValidationError(
+                f"{canary_path} lacks exact fault-detection evidence"
+            )
+        output_hashes.add(output_sha256)
+    if len(output_hashes) != 2:
+        raise ValidationError(
+            "Compute Sanitizer canary outputs must be distinct"
+        )
+
+    production_path = f"{path}.production"
+    production = _object(
+        sanitizer["production"],
+        production_path,
+        {
+            "command",
+            "result",
+            "exit_status",
+            "error_summary_count",
+            "evidence",
+            "output_sha256",
+        },
+    )
+    command = _string_list(
+        production["command"], f"{production_path}.command"
+    )
+    _value_type(
+        production["exit_status"], int, f"{production_path}.exit_status"
+    )
+    _value_type(
+        production["error_summary_count"],
+        int,
+        f"{production_path}.error_summary_count",
+    )
+    output_sha256 = _sha256(
+        production["output_sha256"],
+        f"{production_path}.output_sha256",
+    )
+    if (
+        len(command) != 9
+        or command[:6] != common_prefix
+        or command[6]
+        != "/tmp/marketforge-build-gpu/marketforge_cuda_probe"
+        or command[7:] != ["--repetitions", "100"]
+        or production["result"] != "pass"
+        or production["exit_status"] != 0
+        or production["error_summary_count"] != 0
+        or production["evidence"] != "ERROR SUMMARY: 0 errors"
+        or output_sha256 in output_hashes
+    ):
+        raise ValidationError(
+            "production Compute Sanitizer hard evidence is incomplete"
+        )
+
+
 def _validate_stage(
     value: object,
     path: str,
@@ -305,7 +474,17 @@ def validate_manifest(
     expected_dependency_lock_sha256: str,
 ) -> None:
     """Reject any incomplete, inconsistent, or falsely passing manifest."""
-    locked = _object(lock, "lock", {"schema_version", "registry_image", "toolchain", "modal"})
+    locked = _object(
+        lock,
+        "lock",
+        {
+            "schema_version",
+            "registry_image",
+            "toolchain",
+            "compute_sanitizer",
+            "modal",
+        },
+    )
     _value_type(locked["schema_version"], int, "lock.schema_version")
     if locked["schema_version"] != 1:
         raise ValidationError("lock.schema_version must be 1")
@@ -334,12 +513,20 @@ def validate_manifest(
             "compatibility_policy",
         },
     )
+    sanitizer_lock = _object(
+        locked["compute_sanitizer"],
+        "lock.compute_sanitizer",
+        set(EXPECTED_SANITIZER_LOCK),
+    )
     modal_lock = _object(
         locked["modal"], "lock.modal", {"sdk", "gpu", "max_containers"}
     )
     if (
         not _exact_json_equal(registry_lock, EXPECTED_REGISTRY_LOCK)
         or not _exact_json_equal(toolchain_lock, EXPECTED_TOOLCHAIN_LOCK)
+        or not _exact_json_equal(
+            sanitizer_lock, EXPECTED_SANITIZER_LOCK
+        )
         or not _exact_json_equal(modal_lock, EXPECTED_MODAL_LOCK)
     ):
         raise ValidationError("toolchain lock does not match the frozen PR-6 lock")
@@ -624,30 +811,9 @@ def validate_manifest(
     if probe["lifecycle_repetitions"] < 100:
         raise ValidationError("lifecycle repetitions must be at least 100")
 
-    sanitizer = _object(
-        root["compute_sanitizer"],
-        "manifest.compute_sanitizer",
-        {"command", "result", "exit_status"},
+    _validate_compute_sanitizer(
+        root["compute_sanitizer"], sanitizer_lock
     )
-    command = _string_list(
-        sanitizer["command"], "manifest.compute_sanitizer.command"
-    )
-    _value_type(
-        sanitizer["exit_status"],
-        int,
-        "manifest.compute_sanitizer.exit_status",
-    )
-    if (
-        sanitizer["result"] != "pass"
-        or sanitizer["exit_status"] != 0
-        or command[0] != "compute-sanitizer"
-        or command[1:5] != ["--tool", "memcheck", "--leak-check", "full"]
-        or "--error-exitcode=97" not in command
-        or "--repetitions" not in command
-        or command[-1] != "100"
-        or not any(item.endswith("marketforge_cuda_probe") for item in command)
-    ):
-        raise ValidationError("Compute Sanitizer hard evidence is incomplete")
 
     profilers = _object(
         root["profilers"], "manifest.profilers", {"nsys", "ncu"}

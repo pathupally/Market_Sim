@@ -239,6 +239,28 @@ if(BUILD_TESTING)
     )
     marketforge_set_warnings(marketforge_cuda_unit_tests)
 
+    add_executable(
+      marketforge_cuda_sanitizer_canary
+      tests/cuda/sanitizer_canary.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_sanitizer_canary
+      PRIVATE CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_sanitizer_canary
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_sanitizer_canary
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_sanitizer_canary)
+
     add_test(NAME marketforge.cuda.unit COMMAND marketforge_cuda_unit_tests)
     add_test(
       NAME marketforge.cuda.probe

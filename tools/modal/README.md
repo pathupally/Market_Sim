@@ -50,6 +50,19 @@ the first passes. Compute Sanitizer is a hard gate; Nsight Systems and Nsight
 Compute are probed and reported truthfully but are not required to be
 available. The lock distinguishes the installed `ninja_distribution`
 metadata version from the exact `ninja_binary` self-report and validates both.
+The image keeps the CUDA compiler/runtime at 12.6.3 and additively installs the
+SHA-pinned `cuda-sanitizer-13-0=13.0.85-1` package. Accepted evidence requires
+the exact package metadata, docs release, executable path, executable
+version/build/channel, byte size, and executable SHA-256 in
+`cuda-toolchain-lock.json`.
+
+Before the 100-repetition production probe, the same L4 container must run
+separate invalid-global-write and device-leak canaries through the exact locked
+sanitizer path and flags. Each canary must exit 97 with matching
+tool-generated fault diagnostics and a positive error summary. Production then
+must exit zero with `ERROR SUMMARY: 0 errors`. Missing capability, a false
+success, a wrapper or alternate path, or a plain-execution fallback is a hard
+failure.
 
 Month-to-date spend is mandatory. This pure Python dry run performs the
 combined-chain budget preflight. It does not import the Modal SDK, initialize
@@ -87,8 +100,9 @@ matching reservation.
 
 Accepted evidence is cached outside Git by exact commit and gate, so an
 unchanged accepted candidate is not billed twice. Failed attempts retain their
-conservative reservation. After four no-GPU failures, the final frozen
-envelope permits at most three additional full-chain reservations under the PR
-6 cumulative `$2.00` and 120-minute ceilings. Raw profiler captures remain in
+conservative reservation. Five reservations currently consume `$1.262100` and
+75 reserved L4 minutes under the frozen `$2.00` and 120-minute envelope.
+Attempts 6 and 7 are mathematically possible, but no further dispatch is
+authorized without explicit user approval. Raw profiler captures remain in
 remote temporary storage and are deleted after structured capability
 verification.

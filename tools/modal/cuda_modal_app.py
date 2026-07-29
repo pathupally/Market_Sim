@@ -55,12 +55,46 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOCK_PATH = PROJECT_ROOT / "tools/modal/cuda-toolchain-lock.json"
 LOCK = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 REGISTRY_REFERENCE = LOCK["registry_image"]["reference"]
+SANITIZER_LOCK = LOCK["compute_sanitizer"]
 REMOTE_SOURCE = Path("/tmp/marketforge-source")
+GPU_BUILD = Path("/tmp/marketforge-build-gpu")
 COMPUTE_SANITIZER_ERROR_EXIT = 97
+SANITIZER_DEB_FILENAME = (
+    f"{SANITIZER_LOCK['package_name']}_"
+    f"{SANITIZER_LOCK['package_version']}_amd64.deb"
+)
+SANITIZER_IMAGE_INSTALL_COMMAND = (
+    "set -eux; "
+    "export DEBIAN_FRONTEND=noninteractive; "
+    'cuda_link_before="$(readlink -f /usr/local/cuda)"; '
+    'nvcc_before="$(/usr/local/cuda/bin/nvcc --version)"; '
+    "cd /tmp; "
+    "apt-get update; "
+    f"apt-get download {SANITIZER_LOCK['package_name']}="
+    f"{SANITIZER_LOCK['package_version']}; "
+    f"printf '%s  %s\\n' '{SANITIZER_LOCK['package_sha256']}' "
+    f"'{SANITIZER_DEB_FILENAME}' | sha256sum --check --strict; "
+    f"dpkg --install './{SANITIZER_DEB_FILENAME}'; "
+    f"test \"$(dpkg-query --show --showformat='${{Architecture}}' "
+    f"'{SANITIZER_LOCK['package_name']}')\" "
+    f"= '{SANITIZER_LOCK['package_architecture']}'; "
+    f"test \"$(dpkg-query --show --showformat='${{Status}}' "
+    f"'{SANITIZER_LOCK['package_name']}')\" "
+    f"= '{SANITIZER_LOCK['package_status']}'; "
+    f"printf '%s  %s\\n' '{SANITIZER_LOCK['executable_sha256']}' "
+    f"'{SANITIZER_LOCK['executable_path']}' | sha256sum --check --strict; "
+    f"test \"$(stat --format=%s '{SANITIZER_LOCK['executable_path']}')\" "
+    f"= '{SANITIZER_LOCK['executable_size_bytes']}'; "
+    'test "$(readlink -f /usr/local/cuda)" = "${cuda_link_before}"; '
+    'test "$(/usr/local/cuda/bin/nvcc --version)" = "${nvcc_before}"; '
+    f"rm -- './{SANITIZER_DEB_FILENAME}'; "
+    "rm -rf /var/lib/apt/lists/*"
+)
 
 cuda_image = (
     modal.Image.from_registry(REGISTRY_REFERENCE, add_python="3.12")
     .pip_install("cmake==3.30.5", "ninja==1.11.1.1")
+    .run_commands(SANITIZER_IMAGE_INSTALL_COMMAND)
 )
 
 app = modal.App(
@@ -148,6 +182,115 @@ def _installed_distribution_version(distribution: str) -> str:
     if type(observed) is not str or not observed:
         raise RuntimeError(
             f"installed Python distribution version is missing: {distribution}"
+        )
+    return observed
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _observe_compute_sanitizer() -> dict[str, object]:
+    package_name = SANITIZER_LOCK["package_name"]
+    package_version = _first_line(
+        [
+            "dpkg-query",
+            "--show",
+            "--showformat=${Version}",
+            package_name,
+        ]
+    )
+    package_architecture = _first_line(
+        [
+            "dpkg-query",
+            "--show",
+            "--showformat=${Architecture}",
+            package_name,
+        ]
+    )
+    package_status = _first_line(
+        [
+            "dpkg-query",
+            "--show",
+            "--showformat=${Status}",
+            package_name,
+        ]
+    )
+    executable = Path(SANITIZER_LOCK["executable_path"])
+    if (
+        executable.is_symlink()
+        or not executable.is_file()
+        or not os.access(executable, os.X_OK)
+    ):
+        raise RuntimeError("locked Compute Sanitizer executable is unavailable")
+    executable_size = executable.stat().st_size
+    executable_sha256 = _sha256_file(executable)
+
+    package_file_values = str(
+        _run(["dpkg-query", "--listfiles", package_name])["output"]
+    ).splitlines()
+    package_files = [Path(value) for value in package_file_values if value]
+    if package_files.count(executable) != 1:
+        raise RuntimeError(
+            "locked Compute Sanitizer executable is not uniquely package-owned"
+        )
+    docs_root = executable.parent / "docs"
+    version_files = [
+        path
+        for path in package_files
+        if path.name == "VERSION" and path.is_relative_to(docs_root)
+    ]
+    if len(version_files) != 1 or not version_files[0].is_file():
+        raise RuntimeError(
+            "installed sanitizer package has no unique docs VERSION file"
+        )
+    toolkit_docs_release = version_files[0].read_text(
+        encoding="utf-8"
+    ).strip()
+
+    version_output = str(
+        _run([str(executable), "--version"])["output"]
+    )
+    headers = re.findall(
+        r"(?m)^NVIDIA \(R\) Compute Sanitizer\r?$",
+        version_output,
+    )
+    if len(headers) != 1:
+        raise RuntimeError(
+            "Compute Sanitizer executable header is malformed"
+        )
+    matches = re.findall(
+        r"(?m)^Version ([0-9]+(?:\.[0-9]+){3}) "
+        r"\(build ([0-9]+)\) \(([a-z0-9-]+)\)\r?$",
+        version_output,
+    )
+    if len(matches) != 1:
+        raise RuntimeError(
+            "Compute Sanitizer executable version output is malformed"
+        )
+    executable_version, executable_build, release_channel = matches[0]
+
+    observed = {
+        "package_name": package_name,
+        "package_version": package_version,
+        "package_architecture": package_architecture,
+        "package_status": package_status,
+        "package_sha256": SANITIZER_LOCK["package_sha256"],
+        "toolkit_docs_release": toolkit_docs_release,
+        "executable_path": str(executable),
+        "executable_version": executable_version,
+        "executable_build": executable_build,
+        "release_channel": release_channel,
+        "executable_size_bytes": executable_size,
+        "executable_sha256": executable_sha256,
+    }
+    if observed != SANITIZER_LOCK:
+        raise RuntimeError(
+            "observed Compute Sanitizer identity disagrees with the lock"
         )
     return observed
 
@@ -500,6 +643,199 @@ def _parse_probe(output: str, repetitions: int) -> dict[str, object]:
     }
 
 
+def _compute_sanitizer_command(
+    target: Path, target_arguments: list[str]
+) -> list[str]:
+    return [
+        SANITIZER_LOCK["executable_path"],
+        "--tool",
+        "memcheck",
+        "--leak-check",
+        "full",
+        f"--error-exitcode={COMPUTE_SANITIZER_ERROR_EXIT}",
+        str(target),
+        *target_arguments,
+    ]
+
+
+def _require_exact_executable(path: Path, expected: Path) -> None:
+    if (
+        path != expected
+        or path.is_symlink()
+        or not path.is_file()
+        or not os.access(path, os.X_OK)
+    ):
+        raise RuntimeError(f"required executable is invalid: {expected}")
+
+
+def _sanitizer_error_summary(output: str) -> int:
+    matches = re.findall(
+        r"(?m)^=========\s+ERROR SUMMARY:\s+([0-9]+)\s+errors?\b",
+        output,
+    )
+    if len(matches) != 1:
+        raise RuntimeError(
+            "Compute Sanitizer emitted no unique error summary"
+        )
+    return int(matches[0])
+
+
+def _reject_sanitizer_platform_failure(output: str) -> None:
+    lowered = output.lower()
+    forbidden = (
+        "device not supported",
+        "permission",
+        "internal error",
+        "error 999",
+        "error code 999",
+        "errors 999",
+        "cudaerrorunknown",
+    )
+    if any(value in lowered for value in forbidden):
+        raise RuntimeError(
+            "Compute Sanitizer reported a platform or internal failure"
+        )
+
+
+def _parse_sanitizer_canary(
+    mode: str,
+    command: list[str],
+    run: dict[str, object],
+) -> dict[str, object]:
+    if mode not in {"invalid-global-write", "device-leak"}:
+        raise RuntimeError("unknown Compute Sanitizer canary mode")
+    if (
+        type(run.get("exit_status")) is not int
+        or run["exit_status"] != COMPUTE_SANITIZER_ERROR_EXIT
+        or type(run.get("output")) is not str
+    ):
+        raise RuntimeError(
+            f"Compute Sanitizer {mode} canary did not exit exactly "
+            f"{COMPUTE_SANITIZER_ERROR_EXIT}"
+        )
+    output = run["output"]
+    _reject_sanitizer_platform_failure(output)
+    error_count = _sanitizer_error_summary(output)
+    if error_count <= 0:
+        raise RuntimeError(
+            f"Compute Sanitizer {mode} canary reported no errors"
+        )
+
+    if mode == "invalid-global-write":
+        marker = (
+            "MARKETFORGE_SANITIZER_CANARY "
+            "mode=invalid-global-write bytes=4"
+        )
+        diagnostic = re.search(
+            r"(?m)^=========\s+Invalid __global__ write of size "
+            r"[1-9][0-9]* bytes\b",
+            output,
+        )
+        symbol = "invalid_global_write_kernel"
+        evidence = "invalid __global__ write detected"
+    else:
+        marker = "MARKETFORGE_SANITIZER_CANARY mode=device-leak bytes=256"
+        diagnostic = re.search(
+            r"(?m)^=========\s+Leaked 256 bytes\b",
+            output,
+        )
+        symbol = None
+        evidence = "256-byte device leak detected"
+    if marker not in output or diagnostic is None or (
+        symbol is not None and symbol not in output
+    ):
+        raise RuntimeError(
+            f"Compute Sanitizer {mode} canary lacks intended fault evidence"
+        )
+    return {
+        "mode": mode,
+        "command": command,
+        "result": "detected",
+        "exit_status": COMPUTE_SANITIZER_ERROR_EXIT,
+        "error_summary_count": error_count,
+        "evidence": evidence,
+        "output_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+    }
+
+
+def _run_sanitizer_canary(
+    canary: Path, mode: str
+) -> dict[str, object]:
+    command = _compute_sanitizer_command(
+        canary, ["--mode", mode]
+    )
+    run = _run(command, check=False)
+    return _parse_sanitizer_canary(mode, command, run)
+
+
+def _parse_production_sanitizer(
+    command: list[str],
+    run: dict[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    if (
+        type(run.get("exit_status")) is not int
+        or run["exit_status"] != 0
+        or type(run.get("output")) is not str
+    ):
+        raise RuntimeError(
+            "production Compute Sanitizer run did not exit zero"
+        )
+    output = run["output"]
+    _reject_sanitizer_platform_failure(output)
+    if _sanitizer_error_summary(output) != 0:
+        raise RuntimeError(
+            "production Compute Sanitizer run reported errors"
+        )
+    probe = _parse_probe(output, 100)
+    evidence = {
+        "command": command,
+        "result": "pass",
+        "exit_status": 0,
+        "error_summary_count": 0,
+        "evidence": "ERROR SUMMARY: 0 errors",
+        "output_sha256": hashlib.sha256(output.encode("utf-8")).hexdigest(),
+    }
+    return probe, evidence
+
+
+def _run_compute_sanitizer_gate(
+    probe_executable: Path,
+    canary_executable: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    identity = _observe_compute_sanitizer()
+    invalid_write = _run_sanitizer_canary(
+        canary_executable, "invalid-global-write"
+    )
+    device_leak = _run_sanitizer_canary(
+        canary_executable, "device-leak"
+    )
+    if invalid_write["output_sha256"] == device_leak["output_sha256"]:
+        raise RuntimeError("Compute Sanitizer canary outputs are not distinct")
+
+    production_command = _compute_sanitizer_command(
+        probe_executable, ["--repetitions", "100"]
+    )
+    production_run = _run(production_command, check=False)
+    probe, production = _parse_production_sanitizer(
+        production_command, production_run
+    )
+    if production["output_sha256"] in {
+        invalid_write["output_sha256"],
+        device_leak["output_sha256"],
+    }:
+        raise RuntimeError(
+            "production and canary sanitizer outputs are not distinct"
+        )
+    return probe, {
+        "identity": identity,
+        "canaries": {
+            "invalid_global_write": invalid_write,
+            "device_leak": device_leak,
+        },
+        "production": production,
+    }
+
+
 def _tool_version(command: list[str]) -> str | None:
     if shutil.which(command[0]) is None:
         return None
@@ -682,28 +1018,24 @@ def gpu_smoke(
 ) -> dict[str, object]:
     started = time.monotonic()
     source = _safe_extract_bundle(source_bundle, source_sha256)
-    build = Path("/tmp/marketforge-build-gpu")
+    build = GPU_BUILD
     cuda_checks = _configure_cuda(source, build, run_gpu_tests=True)
     probe_executable = build / "marketforge_cuda_probe"
+    canary_executable = build / "marketforge_cuda_sanitizer_canary"
+    _require_exact_executable(
+        probe_executable, GPU_BUILD / "marketforge_cuda_probe"
+    )
+    _require_exact_executable(
+        canary_executable,
+        GPU_BUILD / "marketforge_cuda_sanitizer_canary",
+    )
 
     probe_run = _run([str(probe_executable), "--repetitions", "1"])
     probe = _parse_probe(str(probe_run["output"]), 1)
 
-    sanitizer_command = [
-        "compute-sanitizer",
-        "--tool",
-        "memcheck",
-        "--leak-check",
-        "full",
-        f"--error-exitcode={COMPUTE_SANITIZER_ERROR_EXIT}",
-        str(probe_executable),
-        "--repetitions",
-        "100",
-    ]
-    sanitizer_run = _run(sanitizer_command)
-    sanitizer_probe = _parse_probe(str(sanitizer_run["output"]), 100)
-    if "ERROR SUMMARY: 0 errors" not in str(sanitizer_run["output"]):
-        raise RuntimeError("Compute Sanitizer did not report a zero-error summary")
+    sanitizer_probe, sanitizer_evidence = _run_compute_sanitizer_gate(
+        probe_executable, canary_executable
+    )
 
     device = _device_probe(build)
     nvidia_smi = _run(
@@ -798,11 +1130,7 @@ def gpu_smoke(
             **sanitizer_probe,
             "known_answer_lengths": probe["known_answer_lengths"],
         },
-        "compute_sanitizer": {
-            "command": sanitizer_command,
-            "result": "pass",
-            "exit_status": 0,
-        },
+        "compute_sanitizer": sanitizer_evidence,
         "profilers": profilers,
         "gpu": {
             "model": "L4",
@@ -987,6 +1315,149 @@ def _validate_compile_result(
     return result
 
 
+def _is_sha256(value: object) -> bool:
+    return (
+        type(value) is str
+        and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    )
+
+
+def _validate_sanitizer_identity(identity: object) -> None:
+    if type(identity) is not dict or set(identity) != set(SANITIZER_LOCK):
+        raise RuntimeError("gpu_smoke sanitizer identity schema is malformed")
+    for field, expected in SANITIZER_LOCK.items():
+        value = identity[field]
+        if field == "executable_size_bytes":
+            if type(value) is not int:
+                raise RuntimeError(
+                    "gpu_smoke sanitizer executable_size_bytes type is invalid"
+                )
+        elif type(value) is not str or not value:
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {field} type is invalid"
+            )
+        if value != expected:
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {field} disagrees with lock"
+            )
+    for field in ("package_sha256", "executable_sha256"):
+        if not _is_sha256(identity[field]):
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {field} is not lowercase SHA-256"
+            )
+
+
+def _validate_sanitizer_evidence(sanitizer: object) -> None:
+    if (
+        type(sanitizer) is not dict
+        or set(sanitizer) != {"identity", "canaries", "production"}
+    ):
+        raise RuntimeError("gpu_smoke sanitizer evidence schema is malformed")
+    _validate_sanitizer_identity(sanitizer["identity"])
+
+    canaries = sanitizer["canaries"]
+    if type(canaries) is not dict or set(canaries) != {
+        "invalid_global_write",
+        "device_leak",
+    }:
+        raise RuntimeError("gpu_smoke sanitizer canary schema is malformed")
+    expected_canaries = {
+        "invalid_global_write": (
+            "invalid-global-write",
+            "invalid __global__ write detected",
+        ),
+        "device_leak": (
+            "device-leak",
+            "256-byte device leak detected",
+        ),
+    }
+    output_hashes: set[str] = set()
+    common_prefix = [
+        SANITIZER_LOCK["executable_path"],
+        "--tool",
+        "memcheck",
+        "--leak-check",
+        "full",
+        f"--error-exitcode={COMPUTE_SANITIZER_ERROR_EXIT}",
+    ]
+    for name, (mode, evidence) in expected_canaries.items():
+        canary = canaries[name]
+        required = {
+            "mode",
+            "command",
+            "result",
+            "exit_status",
+            "error_summary_count",
+            "evidence",
+            "output_sha256",
+        }
+        if type(canary) is not dict or set(canary) != required:
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {name} canary is malformed"
+            )
+        command = canary["command"]
+        if (
+            type(command) is not list
+            or len(command) != 9
+            or command[:6] != common_prefix
+            or command[6]
+            != str(GPU_BUILD / "marketforge_cuda_sanitizer_canary")
+            or command[7:] != ["--mode", mode]
+        ):
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {name} command is invalid"
+            )
+        if (
+            canary["mode"] != mode
+            or canary["result"] != "detected"
+            or type(canary["exit_status"]) is not int
+            or canary["exit_status"] != COMPUTE_SANITIZER_ERROR_EXIT
+            or type(canary["error_summary_count"]) is not int
+            or canary["error_summary_count"] <= 0
+            or canary["evidence"] != evidence
+            or not _is_sha256(canary["output_sha256"])
+        ):
+            raise RuntimeError(
+                f"gpu_smoke sanitizer {name} fault evidence is invalid"
+            )
+        output_hashes.add(canary["output_sha256"])
+    if len(output_hashes) != 2:
+        raise RuntimeError("gpu_smoke sanitizer canary outputs are not distinct")
+
+    production = sanitizer["production"]
+    required_production = {
+        "command",
+        "result",
+        "exit_status",
+        "error_summary_count",
+        "evidence",
+        "output_sha256",
+    }
+    if type(production) is not dict or set(production) != required_production:
+        raise RuntimeError(
+            "gpu_smoke production sanitizer evidence is malformed"
+        )
+    command = production["command"]
+    if (
+        type(command) is not list
+        or len(command) != 9
+        or command[:6] != common_prefix
+        or command[6] != str(GPU_BUILD / "marketforge_cuda_probe")
+        or command[7:] != ["--repetitions", "100"]
+        or production["result"] != "pass"
+        or type(production["exit_status"]) is not int
+        or production["exit_status"] != 0
+        or type(production["error_summary_count"]) is not int
+        or production["error_summary_count"] != 0
+        or production["evidence"] != "ERROR SUMMARY: 0 errors"
+        or not _is_sha256(production["output_sha256"])
+        or production["output_sha256"] in output_hashes
+    ):
+        raise RuntimeError(
+            "gpu_smoke production sanitizer evidence is invalid"
+        )
+
+
 def _validate_gpu_result(
     result: object,
     *,
@@ -1048,30 +1519,7 @@ def _validate_gpu_result(
         "lifecycle_repetitions": 100,
     }:
         raise RuntimeError("gpu_smoke probe evidence is malformed")
-    sanitizer = result["compute_sanitizer"]
-    if (
-        type(sanitizer) is not dict
-        or set(sanitizer) != {"command", "result", "exit_status"}
-        or sanitizer["result"] != "pass"
-        or type(sanitizer["exit_status"]) is not int
-        or sanitizer["exit_status"] != 0
-        or type(sanitizer["command"]) is not list
-    ):
-        raise RuntimeError("gpu_smoke sanitizer evidence is malformed")
-    sanitizer_command = sanitizer["command"]
-    if (
-        sanitizer_command[:5]
-        != [
-            "compute-sanitizer",
-            "--tool",
-            "memcheck",
-            "--leak-check",
-            "full",
-        ]
-        or "--error-exitcode=97" not in sanitizer_command
-        or sanitizer_command[-2:] != ["--repetitions", "100"]
-    ):
-        raise RuntimeError("gpu_smoke sanitizer command is incomplete")
+    _validate_sanitizer_evidence(result["compute_sanitizer"])
     gpu = result["gpu"]
     if (
         type(gpu) is not dict
