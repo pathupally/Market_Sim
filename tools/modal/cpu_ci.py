@@ -50,7 +50,11 @@ def _run(command: list[str]) -> dict[str, object]:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        env={**os.environ, "CTEST_OUTPUT_ON_FAILURE": "1"},
+        env={
+            **os.environ,
+            "CTEST_OUTPUT_ON_FAILURE": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+        },
     )
     elapsed = time.monotonic() - started
     print(completed.stdout, end="", flush=True)
@@ -69,6 +73,7 @@ def _first_line(command: list[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     return completed.stdout.splitlines()[0]
 
@@ -150,8 +155,10 @@ def run_linux_ci() -> dict[str, object]:
 
 
 @app.local_entrypoint()
-def main(month_to_date_usd: str = "0") -> None:
+def main(month_to_date_usd: str) -> None:
     from decimal import Decimal
+
+    from tools.modal.cuda_ci import parse_cost
 
     maximum_compute_cost = estimate_compute_cost(
         seconds=FUNCTION_TIMEOUT_SECONDS,
@@ -159,7 +166,7 @@ def main(month_to_date_usd: str = "0") -> None:
         memory_gib=Decimal(MEMORY_MIB) / Decimal(1024),
     )
     require_project_headroom(
-        month_to_date_usd=Decimal(month_to_date_usd),
+        month_to_date_usd=parse_cost(month_to_date_usd),
         planned_cost_usd=maximum_compute_cost,
     )
     print(

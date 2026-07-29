@@ -26,6 +26,8 @@ enum class ErrorCode : std::uint16_t {
   missing_tensor,
   unexpected_tensor,
   hash_mismatch,
+  cuda_backend_failure,
+  cuda_runtime_failure,
 };
 
 struct Status {

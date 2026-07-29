@@ -21,6 +21,10 @@ GPU_SECOND_USD = {
     "H100": Decimal("0.001097"),
 }
 
+def _require_finite_non_negative(value: Decimal, name: str) -> None:
+    if not value.is_finite() or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
+
 
 def estimate_compute_cost(
     *,
@@ -30,8 +34,10 @@ def estimate_compute_cost(
     gpu: str | None = None,
 ) -> Decimal:
     """Return the standard-rate compute estimate for one container."""
-    if seconds < 0 or physical_cores < 0 or memory_gib < 0:
-        raise ValueError("resource quantities must be non-negative")
+    _require_finite_non_negative(physical_cores, "physical_cores")
+    _require_finite_non_negative(memory_gib, "memory_gib")
+    if seconds < 0:
+        raise ValueError("seconds must be non-negative")
     if gpu is not None and gpu not in GPU_SECOND_USD:
         raise ValueError(f"unknown GPU rate: {gpu}")
 
@@ -49,8 +55,8 @@ def require_project_headroom(
     *, month_to_date_usd: Decimal, planned_cost_usd: Decimal
 ) -> None:
     """Reject a run whose estimate would cross the project's soft cap."""
-    if month_to_date_usd < 0 or planned_cost_usd < 0:
-        raise ValueError("costs must be non-negative")
+    _require_finite_non_negative(month_to_date_usd, "month_to_date_usd")
+    _require_finite_non_negative(planned_cost_usd, "planned_cost_usd")
     projected = month_to_date_usd + planned_cost_usd
     if projected > PROJECT_SOFT_CAP_USD:
         raise RuntimeError(

@@ -11,10 +11,6 @@ option(MARKETFORGE_ENABLE_CUDA "Build the CUDA backend" OFF)
 option(MARKETFORGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(MARKETFORGE_WARNINGS_AS_ERRORS "Treat project warnings as errors" ON)
 
-if(MARKETFORGE_ENABLE_CUDA)
-  message(FATAL_ERROR "The CUDA backend begins in PR 6; PRs 1-5 remain CPU-only.")
-endif()
-
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -79,6 +75,36 @@ target_link_libraries(
 )
 marketforge_set_warnings(marketforge_market)
 marketforge_enable_sanitizers(marketforge_market)
+
+if(MARKETFORGE_ENABLE_CUDA)
+  enable_language(CUDA)
+  find_package(CUDAToolkit REQUIRED)
+
+  add_library(marketforge_cuda
+    src/cuda/cuda_stream.cu
+    src/cuda/device_buffer.cu
+    src/cuda/lifecycle_probe.cu
+  )
+  add_library(MarketForge::cuda ALIAS marketforge_cuda)
+  target_compile_features(marketforge_cuda PUBLIC cxx_std_20 cuda_std_20)
+  set_target_properties(
+    marketforge_cuda
+    PROPERTIES
+      CUDA_ARCHITECTURES 89
+      CUDA_EXTENSIONS OFF
+      CUDA_STANDARD 20
+      CUDA_STANDARD_REQUIRED ON
+  )
+  target_include_directories(
+    marketforge_cuda
+    PUBLIC
+      "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+      "$<INSTALL_INTERFACE:include>"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/cuda"
+  )
+  target_link_libraries(marketforge_cuda PRIVATE CUDA::cudart)
+  marketforge_set_warnings(marketforge_cuda)
+endif()
 
 if(APPLE)
   find_library(MARKETFORGE_ACCELERATE_FRAMEWORK Accelerate REQUIRED)
@@ -150,4 +176,66 @@ if(BUILD_TESTING)
 
   add_test(NAME marketforge.unit COMMAND marketforge_unit_tests)
   add_test(NAME marketforge.market_trace COMMAND marketforge_market_trace)
+
+  add_executable(
+    marketforge_cuda_public_headers
+    tests/compile/cuda_public_headers.cpp
+  )
+  target_include_directories(
+    marketforge_cuda_public_headers
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  )
+  target_compile_features(marketforge_cuda_public_headers PRIVATE cxx_std_20)
+  marketforge_set_warnings(marketforge_cuda_public_headers)
+  add_test(
+    NAME marketforge.cuda_public_headers
+    COMMAND marketforge_cuda_public_headers
+  )
+
+  if(MARKETFORGE_ENABLE_CUDA)
+    add_executable(
+      marketforge_cuda_probe
+      src/tools/cuda_probe.cpp
+    )
+    target_link_libraries(
+      marketforge_cuda_probe
+      PRIVATE MarketForge::cuda
+    )
+    marketforge_set_warnings(marketforge_cuda_probe)
+
+    add_executable(
+      marketforge_cuda_unit_tests
+      tests/cuda/cuda_tests.cu
+      tests/unit/test_main.cpp
+    )
+    target_link_libraries(
+      marketforge_cuda_unit_tests
+      PRIVATE MarketForge::cuda
+    )
+    target_include_directories(
+      marketforge_cuda_unit_tests
+      PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/cuda"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/support"
+    )
+    target_compile_features(
+      marketforge_cuda_unit_tests
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_unit_tests
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_unit_tests)
+
+    add_test(NAME marketforge.cuda.unit COMMAND marketforge_cuda_unit_tests)
+    add_test(
+      NAME marketforge.cuda.probe
+      COMMAND marketforge_cuda_probe --repetitions 1
+    )
+  endif()
 endif()

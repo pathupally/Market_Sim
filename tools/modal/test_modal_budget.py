@@ -47,6 +47,22 @@ class ModalBudgetTests(unittest.TestCase):
                 gpu="not-a-gpu",
             )
 
+    def test_non_finite_costs_are_rejected(self) -> None:
+        for value in (
+            Decimal("NaN"),
+            Decimal("sNaN"),
+            Decimal("-NaN"),
+            Decimal("Infinity"),
+            Decimal("-Infinity"),
+            Decimal("-1"),
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    require_project_headroom(
+                        month_to_date_usd=value,
+                        planned_cost_usd=Decimal("0"),
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()
