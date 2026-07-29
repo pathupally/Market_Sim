@@ -327,6 +327,19 @@ and 75 reserved L4 minutes. Attempts 6 and 7 remain mathematically available
 within that envelope, but no further dispatch is authorized without explicit
 user approval.
 
+#### Sanitizer version-evidence correction
+
+The additive `cuda-sanitizer-13-0` package version remains exactly
+`13.0.85-1`. Its package `VERSION` file and documentation identify CUDA
+toolkit/docs release `13.0.1`; that value is not the executable self-report.
+The exact SHA-pinned artifact and NVIDIA release-note series identify the
+executable as Compute Sanitizer version `2025.3.1.0`, build `36400806`,
+`public-release`. This correction supersedes only the preceding sentence that
+claimed the installed tool must self-report version `13.0.1`. Machine evidence
+and validators must distinguish and exactly require the package version,
+toolkit/docs release, executable version, executable build, and release
+channel.
+
 Cache remote evidence by exact candidate commit and gate identifier. Never
 rerun an unchanged accepted remote gate.
 
