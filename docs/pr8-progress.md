@@ -27,7 +27,25 @@ Evidence:
 
 ## Milestone 2 — paged KV and immutable shared prefixes
 
-Status: pending
+Status: locally complete
+
+Delivered:
+
+- fixed-size physical KV pages with lowest-index deterministic allocation;
+- one transactional reservation per sequence with explicit commit/rollback;
+- committed page tables that never expose uncommitted capacity;
+- immutable shared-prefix publication and exact attachment reference counts;
+- copy-on-append behavior for partially filled shared prefix pages;
+- page-owner integrity validation and deterministic page reuse;
+- physical, logical, pending, shared, and fragmentation accounting;
+- repeated churn and page-conservation tests.
+
+Evidence:
+
+- repository-root Python discovery: 103 passed, 1 expected skip;
+- Apple Clang Debug: build passed, 4/4 CTests passed;
+- Apple Clang ASan/UBSan: build passed, 4/4 CTests passed;
+- `git diff --check`: passed.
 
 ## Milestone 3 — CUDA restricted-token selection
 

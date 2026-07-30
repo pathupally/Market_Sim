@@ -59,6 +59,7 @@ marketforge_set_warnings(marketforge_grammar)
 marketforge_enable_sanitizers(marketforge_grammar)
 
 add_library(marketforge_serving
+  src/serving/paged_kv_cache.cpp
   src/serving/sequence_scheduler.cpp
 )
 add_library(MarketForge::serving ALIAS marketforge_serving)
@@ -188,6 +189,7 @@ if(BUILD_TESTING)
     tests/unit/loader_tests.cpp
     tests/unit/market_tests.cpp
     tests/unit/model_spec_tests.cpp
+    tests/unit/paged_kv_cache_tests.cpp
     tests/unit/sequence_scheduler_tests.cpp
     tests/property/action_dfa_properties.cpp
     tests/property/market_properties.cpp
