@@ -9,6 +9,7 @@ from tools.modal.vllm_modal_app import (
     MAXIMUM_COST_USD,
     MODEL,
     VLLM_VERSION,
+    _strict_json_line,
     verify_checkpoint,
 )
 
@@ -24,6 +25,8 @@ class VllmModalAppTest(unittest.TestCase):
             MODEL["revision"],
             "93efa2f097d58c2a74874c7e644dbc9b0cee75a2",
         )
+        self.assertEqual(LOCK["packages"]["cmake"], "3.30.5")
+        self.assertEqual(LOCK["packages"]["ninja"], "1.11.1.1")
 
     def test_one_l4_run_is_bounded(self) -> None:
         self.assertEqual(MAXIMUM_COST_USD, Decimal("0.23936400"))
@@ -51,6 +54,22 @@ class VllmModalAppTest(unittest.TestCase):
                     verify_checkpoint(checkpoint)
             finally:
                 vllm_modal_app.MODEL = original_model
+
+    def test_native_benchmark_json_is_strict(self) -> None:
+        self.assertEqual(
+            _strict_json_line('{"schema_version":1}\n'),
+            {"schema_version": 1},
+        )
+        for output in (
+            "",
+            "{}\n{}\n",
+            '{"value":NaN}\n',
+            '{"value":1,"value":2}\n',
+        ):
+            with self.subTest(output=output), self.assertRaises(
+                (RuntimeError, ValueError)
+            ):
+                _strict_json_line(output)
 
 
 if __name__ == "__main__":

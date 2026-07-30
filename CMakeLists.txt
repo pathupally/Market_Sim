@@ -81,8 +81,10 @@ if(MARKETFORGE_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
 
   add_library(marketforge_cuda
+    src/cuda/cublas_handle.cu
     src/cuda/cuda_stream.cu
     src/cuda/device_buffer.cu
+    src/cuda/linear.cu
     src/cuda/lifecycle_probe.cu
     src/cuda/rms_norm.cu
   )
@@ -103,7 +105,12 @@ if(MARKETFORGE_ENABLE_CUDA)
       "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/cuda"
   )
-  target_link_libraries(marketforge_cuda PRIVATE CUDA::cudart)
+  target_link_libraries(
+    marketforge_cuda
+    PRIVATE
+      CUDA::cublas
+      CUDA::cudart
+  )
   marketforge_set_warnings(marketforge_cuda)
 endif()
 
@@ -287,6 +294,30 @@ if(BUILD_TESTING)
         CUDA_STANDARD_REQUIRED ON
     )
     marketforge_set_warnings(marketforge_cuda_rmsnorm_bench)
+
+    add_executable(
+      marketforge_cuda_linear_bench
+      src/tools/cuda_linear_bench.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_linear_bench
+      PRIVATE
+        MarketForge::cuda
+        CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_linear_bench
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_linear_bench
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_linear_bench)
 
     add_test(NAME marketforge.cuda.unit COMMAND marketforge_cuda_unit_tests)
     add_test(

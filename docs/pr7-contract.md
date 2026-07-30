@@ -39,7 +39,7 @@ source-bound Modal result before their performance claims are accepted.
 - prompt: `[0, 1, 2, 3]`;
 - expected output: `[198, 198, 504]`;
 - GPU: one Modal L4 container;
-- smoke timeout: 900 seconds;
+- combined native-CUDA/vLLM gate timeout: 900 seconds;
 - maximum compute cost: $0.239364.
 
 The first smoke enforces eager execution. CUDA-graph and prefix-cache modes are
@@ -58,3 +58,7 @@ PR 8 ablations and must use the same artifact schema.
 - the cached checkpoint is size- and SHA-256-verified before vLLM loads it;
 - default local tests import no vLLM, torch, or CUDA runtime;
 - no network or GPU job runs during default tests.
+
+The same L4 invocation also builds the native CUDA library, runs its CTests,
+and records CUDA-event RMSNorm and fused-QKV cuBLAS benchmark artifacts. This
+keeps source upload, model transfer, and GPU authorization to one bounded run.

@@ -126,7 +126,9 @@ package cannot shadow the installed Modal SDK:
 .venv/bin/python -m unittest discover -s . -p 'test_*.py'
 ```
 
-After committing a clean candidate, the one-container, 15-minute L4 ceiling is
+After committing a clean candidate, one combined gate builds and tests the
+native CUDA library, records RMSNorm and cuBLAS fused-QKV benchmarks, and runs
+the vLLM token-parity check. Its one-container, 15-minute L4 ceiling is
 $0.239364:
 
 ```bash

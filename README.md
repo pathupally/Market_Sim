@@ -19,7 +19,8 @@ PR 7 uses two GPU lanes: pinned vLLM for an immediate end-to-end serving
 baseline and a separate native C++/CUDA implementation for kernel and memory
 systems work. Both consume token IDs and emit the strict backend-neutral
 inference artifact defined in `tools/inference/contract.py`. See
-[the PR 7 contract](docs/pr7-contract.md).
+[the PR 7 contract](docs/pr7-contract.md) and
+[live progress log](docs/pr7-progress.md).
 
 ## Build on this Mac
 

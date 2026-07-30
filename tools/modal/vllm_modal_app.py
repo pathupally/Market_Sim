@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from decimal import Decimal
 import hashlib
+import io
 import json
+import math
+import os
 from pathlib import Path
+from pathlib import PurePosixPath
 import re
+import shutil
+import subprocess
+import tarfile
+import time
 
 import modal
 
@@ -38,6 +46,8 @@ LOCK = json.loads(
 )
 EXECUTION = LOCK["execution"]
 MODEL = LOCK["model"]
+REMOTE_SOURCE = Path("/tmp/marketforge-pr7-source")
+REMOTE_BUILD = Path("/tmp/marketforge-pr7-build")
 TIMEOUT_SECONDS = int(EXECUTION["timeout_seconds"])
 PHYSICAL_CORES = Decimal(str(EXECUTION["physical_cores"]))
 MEMORY_GIB = Decimal(str(EXECUTION["memory_mib"])) / Decimal(1024)
@@ -63,13 +73,167 @@ def verify_checkpoint(path: Path) -> None:
         raise RuntimeError("cached SmolLM2 checkpoint violates its lock")
 
 
+def _run(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    environment: dict[str, str] | None = None,
+) -> dict[str, object]:
+    started = time.monotonic()
+    completed = subprocess.run(
+        command,
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            **(environment or {}),
+        },
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    result: dict[str, object] = {
+        "command": command,
+        "exit_status": completed.returncode,
+        "output": completed.stdout,
+        "wall_seconds": round(time.monotonic() - started, 6),
+    }
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"command failed with exit {completed.returncode}: "
+            f"{' '.join(command)}\n{completed.stdout}"
+        )
+    return result
+
+
+def _extract_bundle(content: bytes, expected_sha256: str) -> Path:
+    if hashlib.sha256(content).hexdigest() != expected_sha256:
+        raise RuntimeError("source bundle SHA-256 mismatch")
+    shutil.rmtree(REMOTE_SOURCE, ignore_errors=True)
+    REMOTE_SOURCE.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
+        for member in archive.getmembers():
+            path = PurePosixPath(member.name)
+            if (
+                path.is_absolute()
+                or ".." in path.parts
+                or not (member.isdir() or member.isfile())
+            ):
+                raise RuntimeError(
+                    f"unsafe source archive member: {member.name}"
+                )
+        archive.extractall(REMOTE_SOURCE, filter="data")
+    embedded_lock = json.loads(
+        (REMOTE_SOURCE / "tools/modal/vllm-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    if embedded_lock != LOCK:
+        raise RuntimeError("source-bundle vLLM lock mismatch")
+    return REMOTE_SOURCE
+
+
+def _strict_json_line(output: str) -> dict[str, object]:
+    lines = [line for line in output.splitlines() if line.startswith("{")]
+    if len(lines) != 1:
+        raise RuntimeError("benchmark emitted no unique JSON line")
+
+    def reject_duplicates(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate key: {key}")
+            value[key] = item
+        return value
+
+    value = json.loads(
+        lines[0],
+        object_pairs_hook=reject_duplicates,
+        parse_constant=lambda name: (_ for _ in ()).throw(
+            ValueError(f"non-finite constant: {name}")
+        ),
+    )
+    if type(value) is not dict:
+        raise RuntimeError("benchmark JSON is not an object")
+    return value
+
+
+def _validate_benchmark(
+    benchmark: object,
+    *,
+    operator: str,
+    measurement_count: int,
+) -> None:
+    if type(benchmark) is not dict or set(benchmark) != {
+        "schema_version",
+        "result",
+        "operator",
+        "model_shape",
+        "gpu",
+        "measurements",
+    }:
+        raise RuntimeError("native benchmark schema mismatch")
+    gpu = benchmark["gpu"]
+    measurements = benchmark["measurements"]
+    if (
+        type(benchmark["schema_version"]) is not int
+        or benchmark["schema_version"] != 1
+        or benchmark["result"] != "pass"
+        or benchmark["operator"] != operator
+        or type(benchmark["model_shape"]) is not str
+        or type(gpu) is not dict
+        or "L4" not in str(gpu.get("name"))
+        or gpu.get("compute_capability") != "8.9"
+        or type(measurements) is not list
+        or len(measurements) != measurement_count
+    ):
+        raise RuntimeError("native benchmark evidence mismatch")
+    if operator == "rms_norm_f32":
+        measurement_fields = {
+            "rows",
+            "hidden_size",
+            "iterations",
+            "average_microseconds",
+            "logical_gib_per_second",
+        }
+        rate_field = "logical_gib_per_second"
+    else:
+        measurement_fields = {
+            "rows",
+            "input_features",
+            "output_features",
+            "iterations",
+            "average_microseconds",
+            "tera_flops",
+        }
+        rate_field = "tera_flops"
+    for measurement in measurements:
+        if type(measurement) is not dict or set(measurement) != measurement_fields:
+            raise RuntimeError("native benchmark measurement is malformed")
+        for field in ("average_microseconds", rate_field):
+            value = measurement.get(field)
+            if (
+                type(value) is not float
+                or not math.isfinite(value)
+                or value <= 0.0
+            ):
+                raise RuntimeError("native benchmark timing is malformed")
+
+
 vllm_image = (
     modal.Image.from_registry(
         LOCK["base_image"]["reference"],
         add_python=LOCK["python"],
     )
     .entrypoint([])
-    .uv_pip_install(f"vllm=={LOCK['packages']['vllm']}")
+    .uv_pip_install(
+        f"cmake=={LOCK['packages']['cmake']}",
+        f"ninja=={LOCK['packages']['ninja']}",
+        f"vllm=={LOCK['packages']['vllm']}",
+    )
     .env(
         {
             "HF_HOME": "/models/huggingface",
@@ -85,8 +249,8 @@ model_cache = modal.Volume.from_name(
     create_if_missing=True,
 )
 app = modal.App(
-    "marketforge-pr7-vllm-smoke",
-    tags={"project": "marketforge", "purpose": "pr7-vllm-conformance"},
+    "marketforge-pr7-native-vllm",
+    tags={"project": "marketforge", "purpose": "pr7-native-vllm-gate"},
 )
 
 
@@ -101,9 +265,10 @@ app = modal.App(
     volumes={"/models": model_cache},
 )
 @modal.concurrent(max_inputs=1)
-def vllm_smoke(
-    candidate_commit: str,
+def pr7_l4_gate(
+    source_content: bytes,
     source_bundle_sha256: str,
+    candidate_commit: str,
 ) -> dict[str, object]:
     import torch
     from huggingface_hub import snapshot_download
@@ -121,6 +286,64 @@ def vllm_smoke(
     if properties.major != 8 or properties.minor != 9:
         raise RuntimeError("PR 7 vLLM conformance requires compute 8.9")
     torch.cuda.reset_peak_memory_stats()
+
+    source = _extract_bundle(source_content, source_bundle_sha256)
+    shutil.rmtree(REMOTE_BUILD, ignore_errors=True)
+    environment = {
+        "CUDACXX": "/usr/local/cuda/bin/nvcc",
+        "CTEST_OUTPUT_ON_FAILURE": "1",
+    }
+    commands = [
+        _run(
+            [
+                "cmake",
+                "-S",
+                str(source),
+                "-B",
+                str(REMOTE_BUILD),
+                "-G",
+                "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DMARKETFORGE_ENABLE_CUDA=ON",
+                "-DMARKETFORGE_WARNINGS_AS_ERRORS=ON",
+                "-DCMAKE_CUDA_ARCHITECTURES=89",
+            ],
+            environment=environment,
+        ),
+        _run(
+            ["cmake", "--build", str(REMOTE_BUILD), "--parallel", "2"],
+            environment=environment,
+        ),
+        _run(
+            [
+                "ctest",
+                "--test-dir",
+                str(REMOTE_BUILD),
+                "--output-on-failure",
+            ],
+            environment=environment,
+        ),
+    ]
+    rmsnorm_run = _run(
+        [str(REMOTE_BUILD / "marketforge_cuda_rmsnorm_bench")],
+        environment=environment,
+    )
+    linear_run = _run(
+        [str(REMOTE_BUILD / "marketforge_cuda_linear_bench")],
+        environment=environment,
+    )
+    rmsnorm_benchmark = _strict_json_line(str(rmsnorm_run["output"]))
+    linear_benchmark = _strict_json_line(str(linear_run["output"]))
+    _validate_benchmark(
+        rmsnorm_benchmark,
+        operator="rms_norm_f32",
+        measurement_count=4,
+    )
+    _validate_benchmark(
+        linear_benchmark,
+        operator="linear_f16_fp32_accumulate",
+        measurement_count=3,
+    )
 
     model = ModelIdentity(
         model_id=MODEL["id"],
@@ -176,7 +399,20 @@ def vllm_smoke(
         raise RuntimeError("vLLM tokens do not match the PR 4 oracle")
     validate_run_payload(payload)
     model_cache.commit()
-    return payload
+    return {
+        "schema_version": 1,
+        "result": "pass",
+        "source": {
+            "commit": candidate_commit,
+            "bundle_sha256": source_bundle_sha256,
+        },
+        "native_cuda": {
+            "commands": commands,
+            "rmsnorm_benchmark": rmsnorm_benchmark,
+            "linear_benchmark": linear_benchmark,
+        },
+        "inference": payload,
+    }
 
 
 @app.local_entrypoint()
@@ -187,11 +423,29 @@ def main(month_to_date_usd: str) -> None:
         planned_cost_usd=MAXIMUM_COST_USD,
     )
     bundle = create_source_bundle(PROJECT_ROOT)
-    result = vllm_smoke.remote(bundle.commit, bundle.sha256)
-    validate_run_payload(result)
+    result = pr7_l4_gate.remote(
+        bundle.content,
+        bundle.sha256,
+        bundle.commit,
+    )
+    if type(result) is not dict or set(result) != {
+        "schema_version",
+        "result",
+        "source",
+        "native_cuda",
+        "inference",
+    }:
+        raise RuntimeError("remote PR 7 gate schema mismatch")
+    validate_run_payload(result["inference"])
     if (
         result["source"]["commit"] != bundle.commit
         or result["source"]["bundle_sha256"] != bundle.sha256
+        or result["inference"]["source"] != result["source"]
     ):
-        raise RuntimeError("remote vLLM evidence is not source-bound")
+        raise RuntimeError("remote PR 7 evidence is not source-bound")
+    result["budget"] = {
+        "month_to_date_usd": str(month_to_date),
+        "maximum_compute_cost_usd": f"{MAXIMUM_COST_USD:.6f}",
+        "project_soft_cap_usd": "24",
+    }
     print(json.dumps(result, indent=2, sort_keys=True, allow_nan=False))
