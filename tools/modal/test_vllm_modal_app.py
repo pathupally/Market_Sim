@@ -9,11 +9,133 @@ from tools.modal.vllm_modal_app import (
     MAXIMUM_COST_USD,
     MODEL,
     VLLM_VERSION,
+    _build_vllm_ablations,
+    _prefixed_json_line,
     _strict_json_line,
     _validate_benchmark,
     _validate_native_inference,
+    _validate_restricted_benchmark,
+    _validate_vllm_ablations,
     verify_checkpoint,
 )
+
+SOURCE = {"commit": "c" * 40, "bundle_sha256": "d" * 64}
+
+
+def _inference_payload(
+    *,
+    mode: str,
+    count: int,
+    prompt: list[int],
+    generated: list[int],
+    seconds: float,
+    label: str,
+) -> dict[str, object]:
+    requests = [
+        {
+            "request_id": f"{label}-{index:02d}",
+            "prompt_token_ids": prompt,
+            "generated_token_ids": generated,
+            "finish_reason": "length",
+        }
+        for index in range(count)
+    ]
+    input_tokens = count * len(prompt)
+    output_tokens = count * len(generated)
+    return {
+        "schema_version": 1,
+        "result": "pass",
+        "source": SOURCE,
+        "backend": {
+            "name": "vllm",
+            "version": VLLM_VERSION,
+            "mode": mode,
+        },
+        "model": {
+            "id": MODEL["id"],
+            "repository": MODEL["repository"],
+            "revision": MODEL["revision"],
+            "checkpoint_sha256": MODEL["checkpoint_sha256"],
+            "vocabulary_size": MODEL["vocabulary_size"],
+        },
+        "hardware": {
+            "device_name": "NVIDIA L4",
+            "compute_capability": "8.9",
+            "cuda_version": "12.9",
+        },
+        "generation": {
+            "dtype": "float16",
+            "temperature": 0.0,
+            "seed": 0,
+            "max_output_tokens": 3,
+        },
+        "features": {
+            "prefix_caching": True,
+            "cuda_graphs": mode == "cuda_graph",
+            "structured_output": False,
+        },
+        "requests": requests,
+        "metrics": {
+            "model_load_seconds": 1.0,
+            "inference_seconds": seconds,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "requests_per_second": count / seconds,
+            "output_tokens_per_second": output_tokens / seconds,
+            "peak_gpu_memory_bytes": 1,
+        },
+    }
+
+
+def _mode_payload(mode: str) -> dict[str, object]:
+    runs = {
+        "single": _inference_payload(
+            mode=mode,
+            count=1,
+            prompt=[0, 1, 2, 3],
+            generated=[198, 198, 504],
+            seconds=0.2,
+            label="single",
+        ),
+        "batch": _inference_payload(
+            mode=mode,
+            count=16,
+            prompt=[0, 1, 2, 3],
+            generated=[198, 198, 504],
+            seconds=0.4,
+            label="batch",
+        ),
+    }
+    if mode == "cuda_graph":
+        prefix_prompt = list(range(1, 130))
+        runs["prefix_cold"] = _inference_payload(
+            mode=mode,
+            count=8,
+            prompt=prefix_prompt,
+            generated=[7, 8, 9],
+            seconds=0.3,
+            label="prefix",
+        )
+        runs["prefix_warm"] = _inference_payload(
+            mode=mode,
+            count=8,
+            prompt=prefix_prompt,
+            generated=[7, 8, 9],
+            seconds=0.1,
+            label="prefix",
+        )
+    return {
+        "schema_version": 1,
+        "result": "pass",
+        "mode": mode,
+        "settings": {
+            "batch_size": 16,
+            "prefix_batch_size": 8,
+            "prefix_tokens": 128,
+            "prefix_caching": True,
+        },
+        "runs": runs,
+    }
 
 
 class VllmModalAppTest(unittest.TestCase):
@@ -73,6 +195,23 @@ class VllmModalAppTest(unittest.TestCase):
                 (RuntimeError, ValueError)
             ):
                 _strict_json_line(output)
+
+    def test_prefixed_worker_json_is_strict(self) -> None:
+        prefix = "RESULT="
+        self.assertEqual(
+            _prefixed_json_line('noise\nRESULT={"schema_version":1}\n', prefix),
+            {"schema_version": 1},
+        )
+        for output in (
+            "",
+            "RESULT={}\nRESULT={}\n",
+            "RESULT={\"value\":NaN}\n",
+            "RESULT={\"value\":1,\"value\":2}\n",
+        ):
+            with self.subTest(output=output), self.assertRaises(
+                (RuntimeError, ValueError)
+            ):
+                _prefixed_json_line(output, prefix)
 
     def test_transformer_benchmark_schema_is_strict(self) -> None:
         benchmark = {
@@ -135,6 +274,51 @@ class VllmModalAppTest(unittest.TestCase):
         evidence["generated_token_ids"] = [198, 198, 198]
         with self.assertRaises(RuntimeError):
             _validate_native_inference(evidence)
+
+    def test_restricted_greedy_benchmark_schema_is_strict(self) -> None:
+        benchmark = {
+            "schema_version": 1,
+            "result": "pass",
+            "operator": "restricted_greedy_f16",
+            "grammar": "smollm2_market_action_v1",
+            "vocabulary_size": 49_152,
+            "grammar_states": 10,
+            "grammar_arcs": 20,
+            "maximum_allowed_tokens": 4,
+            "gpu": {
+                "name": "NVIDIA L4",
+                "compute_capability": "8.9",
+            },
+            "measurements": [
+                {
+                    "rows": rows,
+                    "total_allowed_candidates": rows * 2,
+                    "iterations": 10,
+                    "average_microseconds": 1.0,
+                    "sequences_per_second": 2.0,
+                    "candidate_gib_per_second": 3.0,
+                }
+                for rows in (1, 16, 256)
+            ],
+        }
+        _validate_restricted_benchmark(benchmark)
+        benchmark["measurements"][0]["candidate_gib_per_second"] = 0.0
+        with self.assertRaises(RuntimeError):
+            _validate_restricted_benchmark(benchmark)
+
+    def test_vllm_ablation_schema_and_comparisons_are_strict(self) -> None:
+        result = _build_vllm_ablations(
+            _mode_payload("eager"),
+            _mode_payload("cuda_graph"),
+            source=SOURCE,
+        )
+        _validate_vllm_ablations(result)
+        self.assertAlmostEqual(
+            result["comparisons"]["warm_prefix_speedup"], 3.0
+        )
+        result["cuda_graph"]["runs"]["batch"]["backend"]["mode"] = "eager"
+        with self.assertRaises(RuntimeError):
+            _validate_vllm_ablations(result)
 
 
 if __name__ == "__main__":

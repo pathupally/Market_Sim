@@ -77,4 +77,29 @@ Remote evidence: pending the one combined PR 8 L4 gate.
 
 ## Milestone 4 — vLLM serving ablations and combined L4 gate
 
-Status: pending
+Status: harness locally complete; combined gate pending
+
+Delivered:
+
+- pinned vLLM 0.25.1 eager and CUDA-graph/hybrid workers;
+- token-ID-only single-request and 16-request batch comparisons;
+- automatic prefix caching enabled in both execution modes so graph
+  comparisons hold cache configuration constant;
+- a graph-mode 8-request cold/warm replay with one exact 128-token common
+  prefix;
+- separate child processes for eager and graph engines so GPU state is
+  deterministically released between configurations;
+- strict source identity, exact-output, feature-mode, cardinality, timing,
+  throughput, and prefix-replay validation;
+- one combined Modal function that builds/tests native CUDA, benchmarks the
+  action-DFA restricted kernel, runs native SmolLM2 inference, and executes
+  both vLLM workers under the existing 15-minute L4 ceiling.
+
+Local evidence:
+
+- focused vLLM worker/gate tests: 12 passed;
+- repository-root Python discovery: 109 passed, 1 expected skip;
+- no local test imports vLLM, initializes CUDA, downloads a model, or performs
+  network access.
+
+Remote evidence: pending.

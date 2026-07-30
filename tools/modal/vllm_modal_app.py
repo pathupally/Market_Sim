@@ -1,4 +1,4 @@
-"""Bounded vLLM/SmolLM2 L4 conformance run for PR 7."""
+"""Bounded native-CUDA/vLLM serving ablation gate for PR 8."""
 
 from __future__ import annotations
 
@@ -13,24 +13,18 @@ from pathlib import PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import time
 
 import modal
 
 from tools.inference.contract import (
-    HardwareIdentity,
-    InferenceRequest,
     ModelIdentity,
-    SourceIdentity,
     validate_run_payload,
 )
-from tools.inference.vllm_backend import (
-    VLLM_VERSION,
-    VllmConfig,
-    create_engine,
-    run_greedy_batch,
-)
+from tools.inference.vllm_ablation_worker import RESULT_PREFIX
+from tools.inference.vllm_backend import VLLM_VERSION
 from tools.modal.cuda_ci import create_source_bundle, parse_cost
 from tools.modal.modal_budget import (
     CPU_CORE_SECOND_USD,
@@ -46,8 +40,8 @@ LOCK = json.loads(
 )
 EXECUTION = LOCK["execution"]
 MODEL = LOCK["model"]
-REMOTE_SOURCE = Path("/tmp/marketforge-pr7-source")
-REMOTE_BUILD = Path("/tmp/marketforge-pr7-build")
+REMOTE_SOURCE = Path("/tmp/marketforge-pr8-source")
+REMOTE_BUILD = Path("/tmp/marketforge-pr8-build")
 TIMEOUT_SECONDS = int(EXECUTION["timeout_seconds"])
 PHYSICAL_CORES = Decimal(str(EXECUTION["physical_cores"]))
 MEMORY_GIB = Decimal(str(EXECUTION["memory_mib"])) / Decimal(1024)
@@ -161,6 +155,37 @@ def _strict_json_line(output: str) -> dict[str, object]:
     return value
 
 
+def _prefixed_json_line(output: str, prefix: str) -> dict[str, object]:
+    lines = [
+        line[len(prefix) :]
+        for line in output.splitlines()
+        if line.startswith(prefix)
+    ]
+    if len(lines) != 1:
+        raise RuntimeError("worker emitted no unique prefixed JSON line")
+
+    def reject_duplicates(
+        pairs: list[tuple[str, object]],
+    ) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate key: {key}")
+            value[key] = item
+        return value
+
+    value = json.loads(
+        lines[0],
+        object_pairs_hook=reject_duplicates,
+        parse_constant=lambda name: (_ for _ in ()).throw(
+            ValueError(f"non-finite constant: {name}")
+        ),
+    )
+    if type(value) is not dict:
+        raise RuntimeError("worker JSON is not an object")
+    return value
+
+
 def _validate_benchmark(
     benchmark: object,
     *,
@@ -237,6 +262,267 @@ def _validate_benchmark(
                 or value <= 0.0
             ):
                 raise RuntimeError("native benchmark timing is malformed")
+
+
+def _validate_restricted_benchmark(benchmark: object) -> None:
+    if type(benchmark) is not dict or set(benchmark) != {
+        "schema_version",
+        "result",
+        "operator",
+        "grammar",
+        "vocabulary_size",
+        "grammar_states",
+        "grammar_arcs",
+        "maximum_allowed_tokens",
+        "gpu",
+        "measurements",
+    }:
+        raise RuntimeError("restricted benchmark schema mismatch")
+    gpu = benchmark["gpu"]
+    measurements = benchmark["measurements"]
+    if (
+        benchmark["schema_version"] != 1
+        or benchmark["result"] != "pass"
+        or benchmark["operator"] != "restricted_greedy_f16"
+        or benchmark["grammar"] != "smollm2_market_action_v1"
+        or benchmark["vocabulary_size"] != 49_152
+        or type(benchmark["grammar_states"]) is not int
+        or benchmark["grammar_states"] <= 0
+        or type(benchmark["grammar_arcs"]) is not int
+        or benchmark["grammar_arcs"] <= 0
+        or type(benchmark["maximum_allowed_tokens"]) is not int
+        or benchmark["maximum_allowed_tokens"] <= 0
+        or type(gpu) is not dict
+        or set(gpu) != {"name", "compute_capability"}
+        or "L4" not in str(gpu["name"])
+        or gpu["compute_capability"] != "8.9"
+        or type(measurements) is not list
+        or len(measurements) != 3
+    ):
+        raise RuntimeError("restricted benchmark evidence mismatch")
+    fields = {
+        "rows",
+        "total_allowed_candidates",
+        "iterations",
+        "average_microseconds",
+        "sequences_per_second",
+        "candidate_gib_per_second",
+    }
+    for measurement in measurements:
+        if type(measurement) is not dict or set(measurement) != fields:
+            raise RuntimeError(
+                "restricted benchmark measurement is malformed"
+            )
+        for field in ("rows", "total_allowed_candidates", "iterations"):
+            value = measurement[field]
+            if type(value) is not int or value <= 0:
+                raise RuntimeError(
+                    "restricted benchmark count is malformed"
+                )
+        for field in (
+            "average_microseconds",
+            "sequences_per_second",
+            "candidate_gib_per_second",
+        ):
+            value = measurement[field]
+            if (
+                type(value) is not float
+                or not math.isfinite(value)
+                or value <= 0
+            ):
+                raise RuntimeError(
+                    "restricted benchmark timing is malformed"
+                )
+
+
+def _inference_seconds(payload: dict[str, object]) -> float:
+    metrics = payload["metrics"]
+    if type(metrics) is not dict:
+        raise RuntimeError("vLLM metrics are malformed")
+    return float(metrics["inference_seconds"])
+
+
+def _requests_per_second(payload: dict[str, object]) -> float:
+    metrics = payload["metrics"]
+    if type(metrics) is not dict:
+        raise RuntimeError("vLLM metrics are malformed")
+    return float(metrics["requests_per_second"])
+
+
+def _validate_mode_ablations(
+    value: object,
+    *,
+    mode: str,
+    source: dict[str, object],
+) -> None:
+    if type(value) is not dict or set(value) != {
+        "schema_version",
+        "result",
+        "mode",
+        "settings",
+        "runs",
+    }:
+        raise RuntimeError("vLLM mode ablation schema mismatch")
+    settings = value["settings"]
+    runs = value["runs"]
+    expected_run_keys = (
+        {"single", "batch"}
+        if mode == "eager"
+        else {"single", "batch", "prefix_cold", "prefix_warm"}
+    )
+    if (
+        value["schema_version"] != 1
+        or value["result"] != "pass"
+        or value["mode"] != mode
+        or type(settings) is not dict
+        or settings
+        != {
+            "batch_size": 16,
+            "prefix_batch_size": 8,
+            "prefix_tokens": 128,
+            "prefix_caching": True,
+        }
+        or type(runs) is not dict
+        or set(runs) != expected_run_keys
+    ):
+        raise RuntimeError("vLLM mode ablation evidence mismatch")
+    expected_counts = {
+        "single": 1,
+        "batch": 16,
+        "prefix_cold": 8,
+        "prefix_warm": 8,
+    }
+    for name, payload in runs.items():
+        validate_run_payload(payload)
+        if (
+            payload["source"] != source
+            or payload["backend"]["mode"] != mode
+            or payload["features"]["prefix_caching"] is not True
+            or payload["features"]["cuda_graphs"]
+            is not (mode == "cuda_graph")
+            or len(payload["requests"]) != expected_counts[name]
+        ):
+            raise RuntimeError("vLLM ablation run identity mismatch")
+    expected_tokens = [198, 198, 504]
+    if any(
+        request["generated_token_ids"] != expected_tokens
+        for name in ("single", "batch")
+        for request in runs[name]["requests"]
+    ):
+        raise RuntimeError(
+            "vLLM ablation tokens do not match the oracle"
+        )
+    if mode == "cuda_graph" and (
+        runs["prefix_cold"]["requests"]
+        != runs["prefix_warm"]["requests"]
+    ):
+        raise RuntimeError(
+            "vLLM prefix-cache replay changed exact outputs"
+        )
+
+
+def _build_vllm_ablations(
+    eager: dict[str, object],
+    cuda_graph: dict[str, object],
+    *,
+    source: dict[str, object],
+) -> dict[str, object]:
+    _validate_mode_ablations(eager, mode="eager", source=source)
+    _validate_mode_ablations(
+        cuda_graph,
+        mode="cuda_graph",
+        source=source,
+    )
+    eager_runs = eager["runs"]
+    graph_runs = cuda_graph["runs"]
+    if type(eager_runs) is not dict or type(graph_runs) is not dict:
+        raise RuntimeError("vLLM ablation runs are malformed")
+    comparisons = {
+        "graph_single_speedup": (
+            _inference_seconds(eager_runs["single"])
+            / _inference_seconds(graph_runs["single"])
+        ),
+        "graph_batch_speedup": (
+            _inference_seconds(eager_runs["batch"])
+            / _inference_seconds(graph_runs["batch"])
+        ),
+        "eager_batch_request_throughput_gain": (
+            _requests_per_second(eager_runs["batch"])
+            / _requests_per_second(eager_runs["single"])
+        ),
+        "graph_batch_request_throughput_gain": (
+            _requests_per_second(graph_runs["batch"])
+            / _requests_per_second(graph_runs["single"])
+        ),
+        "warm_prefix_speedup": (
+            _inference_seconds(graph_runs["prefix_cold"])
+            / _inference_seconds(graph_runs["prefix_warm"])
+        ),
+    }
+    result = {
+        "schema_version": 1,
+        "result": "pass",
+        "source": source,
+        "eager": eager,
+        "cuda_graph": cuda_graph,
+        "comparisons": comparisons,
+    }
+    _validate_vllm_ablations(result)
+    return result
+
+
+def _validate_vllm_ablations(value: object) -> None:
+    if type(value) is not dict or set(value) != {
+        "schema_version",
+        "result",
+        "source",
+        "eager",
+        "cuda_graph",
+        "comparisons",
+    }:
+        raise RuntimeError("vLLM ablation schema mismatch")
+    source = value["source"]
+    comparisons = value["comparisons"]
+    if (
+        value["schema_version"] != 1
+        or value["result"] != "pass"
+        or type(source) is not dict
+        or set(source) != {"commit", "bundle_sha256"}
+        or re.fullmatch(r"[0-9a-f]{40}", str(source["commit"])) is None
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(source["bundle_sha256"])
+        )
+        is None
+        or type(comparisons) is not dict
+        or set(comparisons)
+        != {
+            "graph_single_speedup",
+            "graph_batch_speedup",
+            "eager_batch_request_throughput_gain",
+            "graph_batch_request_throughput_gain",
+            "warm_prefix_speedup",
+        }
+    ):
+        raise RuntimeError("vLLM ablation identity mismatch")
+    _validate_mode_ablations(
+        value["eager"],
+        mode="eager",
+        source=source,
+    )
+    _validate_mode_ablations(
+        value["cuda_graph"],
+        mode="cuda_graph",
+        source=source,
+    )
+    for measurement in comparisons.values():
+        if (
+            type(measurement) is not float
+            or not math.isfinite(measurement)
+            or measurement <= 0
+        ):
+            raise RuntimeError(
+                "vLLM ablation comparison is malformed"
+            )
 
 
 def _validate_native_inference(value: object) -> None:
@@ -320,8 +606,11 @@ model_cache = modal.Volume.from_name(
     create_if_missing=True,
 )
 app = modal.App(
-    "marketforge-pr7-native-vllm",
-    tags={"project": "marketforge", "purpose": "pr7-native-vllm-gate"},
+    "marketforge-pr8-serving-ablation",
+    tags={
+        "project": "marketforge",
+        "purpose": "pr8-serving-ablation-gate",
+    },
 )
 
 
@@ -336,21 +625,13 @@ app = modal.App(
     volumes={"/models": model_cache},
 )
 @modal.concurrent(max_inputs=1)
-def pr7_l4_gate(
+def pr8_l4_gate(
     source_content: bytes,
     source_bundle_sha256: str,
     candidate_commit: str,
 ) -> dict[str, object]:
-    import threading
-
     import torch
     from huggingface_hub import snapshot_download
-    from pynvml import (
-        nvmlDeviceGetHandleByIndex,
-        nvmlDeviceGetMemoryInfo,
-        nvmlInit,
-        nvmlShutdown,
-    )
 
     if VLLM_VERSION != LOCK["packages"]["vllm"]:
         raise RuntimeError("vLLM adapter and image locks disagree")
@@ -363,7 +644,7 @@ def pr7_l4_gate(
         raise RuntimeError("CUDA is unavailable")
     properties = torch.cuda.get_device_properties(0)
     if properties.major != 8 or properties.minor != 9:
-        raise RuntimeError("PR 7 vLLM conformance requires compute 8.9")
+        raise RuntimeError("PR 8 serving gate requires compute 8.9")
     torch.cuda.reset_peak_memory_stats()
 
     source = _extract_bundle(source_content, source_bundle_sha256)
@@ -415,10 +696,17 @@ def pr7_l4_gate(
         [str(REMOTE_BUILD / "marketforge_cuda_transformer_ops_bench")],
         environment=environment,
     )
+    restricted_greedy_run = _run(
+        [str(REMOTE_BUILD / "marketforge_cuda_restricted_greedy_bench")],
+        environment=environment,
+    )
     rmsnorm_benchmark = _strict_json_line(str(rmsnorm_run["output"]))
     linear_benchmark = _strict_json_line(str(linear_run["output"]))
     transformer_ops_benchmark = _strict_json_line(
         str(transformer_ops_run["output"])
+    )
+    restricted_greedy_benchmark = _strict_json_line(
+        str(restricted_greedy_run["output"])
     )
     _validate_benchmark(
         rmsnorm_benchmark,
@@ -435,6 +723,7 @@ def pr7_l4_gate(
         operator="transformer_elementwise_f16",
         measurement_count=6,
     )
+    _validate_restricted_benchmark(restricted_greedy_benchmark)
 
     model = ModelIdentity(
         model_id=MODEL["id"],
@@ -465,88 +754,54 @@ def pr7_l4_gate(
     )
     _validate_native_inference(native_inference)
 
-    config = VllmConfig(
-        max_output_tokens=3,
-        max_model_len=int(EXECUTION["max_model_len"]),
-        max_num_seqs=int(EXECUTION["max_num_seqs"]),
-        gpu_memory_utilization=float(EXECUTION["gpu_memory_utilization"]),
-        enforce_eager=True,
-        enable_prefix_caching=False,
+    worker_environment = {
+        **environment,
+        "PYTHONPATH": str(source),
+    }
+    worker_command = [
+        sys.executable,
+        "-m",
+        "tools.inference.vllm_ablation_worker",
+        "--model-path",
+        str(snapshot),
+        "--source-commit",
+        candidate_commit,
+        "--source-bundle-sha256",
+        source_bundle_sha256,
+    ]
+    eager_run = _run(
+        [*worker_command, "--mode", "eager"],
+        cwd=source,
+        environment=worker_environment,
     )
-    nvmlInit()
-    nvml_handle = nvmlDeviceGetHandleByIndex(0)
-    memory_stop = threading.Event()
-    peak_gpu_memory_bytes = [int(nvmlDeviceGetMemoryInfo(nvml_handle).used)]
-    memory_errors: list[str] = []
-
-    def sample_device_memory() -> None:
-        try:
-            while not memory_stop.is_set():
-                used = int(nvmlDeviceGetMemoryInfo(nvml_handle).used)
-                peak_gpu_memory_bytes[0] = max(
-                    peak_gpu_memory_bytes[0], used
-                )
-                memory_stop.wait(0.01)
-        except Exception as error:
-            memory_errors.append(str(error))
-            memory_stop.set()
-
-    memory_thread = threading.Thread(
-        target=sample_device_memory,
-        name="pr7-gpu-memory-sampler",
-        daemon=True,
+    graph_run = _run(
+        [*worker_command, "--mode", "cuda_graph"],
+        cwd=source,
+        environment=worker_environment,
     )
-    memory_thread.start()
-    try:
-        engine, sampling_params_factory, load_seconds = create_engine(
-            model,
-            config,
-            model_path=str(snapshot),
-        )
-        run = run_greedy_batch(
-            engine=engine,
-            sampling_params_factory=sampling_params_factory,
-            model=model,
-            source=SourceIdentity(
-                commit=candidate_commit,
-                bundle_sha256=source_bundle_sha256,
-            ),
-            hardware=HardwareIdentity(
-                device_name=torch.cuda.get_device_name(0),
-                compute_capability=f"{properties.major}.{properties.minor}",
-                cuda_version=str(torch.version.cuda),
-            ),
-            requests=(InferenceRequest("pr4-greedy", (0, 1, 2, 3)),),
-            config=config,
-            model_load_seconds=load_seconds,
-            peak_gpu_memory=lambda: peak_gpu_memory_bytes[0],
-        )
-    finally:
-        memory_stop.set()
-        memory_thread.join(timeout=1.0)
-        nvmlShutdown()
-    if memory_errors or run.metrics.peak_gpu_memory_bytes <= 0:
-        raise RuntimeError("device-wide NVML peak sampling failed")
-    payload = run.to_payload()
-    if payload["requests"][0]["generated_token_ids"] != [198, 198, 504]:
-        raise RuntimeError("vLLM tokens do not match the PR 4 oracle")
-    validate_run_payload(payload)
+    source_identity = {
+        "commit": candidate_commit,
+        "bundle_sha256": source_bundle_sha256,
+    }
+    ablations = _build_vllm_ablations(
+        _prefixed_json_line(str(eager_run["output"]), RESULT_PREFIX),
+        _prefixed_json_line(str(graph_run["output"]), RESULT_PREFIX),
+        source=source_identity,
+    )
     model_cache.commit()
     return {
         "schema_version": 1,
         "result": "pass",
-        "source": {
-            "commit": candidate_commit,
-            "bundle_sha256": source_bundle_sha256,
-        },
+        "source": source_identity,
         "native_cuda": {
             "commands": commands,
             "rmsnorm_benchmark": rmsnorm_benchmark,
             "linear_benchmark": linear_benchmark,
             "transformer_ops_benchmark": transformer_ops_benchmark,
+            "restricted_greedy_benchmark": restricted_greedy_benchmark,
             "smollm2_inference": native_inference,
         },
-        "inference": payload,
+        "vllm_ablations": ablations,
     }
 
 
@@ -558,7 +813,7 @@ def main(month_to_date_usd: str) -> None:
         planned_cost_usd=MAXIMUM_COST_USD,
     )
     bundle = create_source_bundle(PROJECT_ROOT)
-    result = pr7_l4_gate.remote(
+    result = pr8_l4_gate.remote(
         bundle.content,
         bundle.sha256,
         bundle.commit,
@@ -568,16 +823,16 @@ def main(month_to_date_usd: str) -> None:
         "result",
         "source",
         "native_cuda",
-        "inference",
+        "vllm_ablations",
     }:
-        raise RuntimeError("remote PR 7 gate schema mismatch")
-    validate_run_payload(result["inference"])
+        raise RuntimeError("remote PR 8 gate schema mismatch")
+    _validate_vllm_ablations(result["vllm_ablations"])
     if (
         result["source"]["commit"] != bundle.commit
         or result["source"]["bundle_sha256"] != bundle.sha256
-        or result["inference"]["source"] != result["source"]
+        or result["vllm_ablations"]["source"] != result["source"]
     ):
-        raise RuntimeError("remote PR 7 evidence is not source-bound")
+        raise RuntimeError("remote PR 8 evidence is not source-bound")
     result["budget"] = {
         "month_to_date_usd": str(month_to_date),
         "maximum_compute_cost_usd": f"{MAXIMUM_COST_USD:.6f}",
