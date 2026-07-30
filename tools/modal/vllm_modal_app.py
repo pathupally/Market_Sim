@@ -232,6 +232,7 @@ vllm_image = (
     .uv_pip_install(
         f"cmake=={LOCK['packages']['cmake']}",
         f"ninja=={LOCK['packages']['ninja']}",
+        f"nvidia-ml-py=={LOCK['packages']['nvidia-ml-py']}",
         f"vllm=={LOCK['packages']['vllm']}",
     )
     .env(
@@ -270,8 +271,16 @@ def pr7_l4_gate(
     source_bundle_sha256: str,
     candidate_commit: str,
 ) -> dict[str, object]:
+    import threading
+
     import torch
     from huggingface_hub import snapshot_download
+    from pynvml import (
+        nvmlDeviceGetHandleByIndex,
+        nvmlDeviceGetMemoryInfo,
+        nvmlInit,
+        nvmlShutdown,
+    )
 
     if VLLM_VERSION != LOCK["packages"]["vllm"]:
         raise RuntimeError("vLLM adapter and image locks disagree")
@@ -371,29 +380,60 @@ def pr7_l4_gate(
         enforce_eager=True,
         enable_prefix_caching=False,
     )
-    engine, sampling_params_factory, load_seconds = create_engine(
-        model,
-        config,
-        model_path=str(snapshot),
+    nvmlInit()
+    nvml_handle = nvmlDeviceGetHandleByIndex(0)
+    memory_stop = threading.Event()
+    peak_gpu_memory_bytes = [int(nvmlDeviceGetMemoryInfo(nvml_handle).used)]
+    memory_errors: list[str] = []
+
+    def sample_device_memory() -> None:
+        try:
+            while not memory_stop.is_set():
+                used = int(nvmlDeviceGetMemoryInfo(nvml_handle).used)
+                peak_gpu_memory_bytes[0] = max(
+                    peak_gpu_memory_bytes[0], used
+                )
+                memory_stop.wait(0.01)
+        except Exception as error:
+            memory_errors.append(str(error))
+            memory_stop.set()
+
+    memory_thread = threading.Thread(
+        target=sample_device_memory,
+        name="pr7-gpu-memory-sampler",
+        daemon=True,
     )
-    run = run_greedy_batch(
-        engine=engine,
-        sampling_params_factory=sampling_params_factory,
-        model=model,
-        source=SourceIdentity(
-            commit=candidate_commit,
-            bundle_sha256=source_bundle_sha256,
-        ),
-        hardware=HardwareIdentity(
-            device_name=torch.cuda.get_device_name(0),
-            compute_capability=f"{properties.major}.{properties.minor}",
-            cuda_version=str(torch.version.cuda),
-        ),
-        requests=(InferenceRequest("pr4-greedy", (0, 1, 2, 3)),),
-        config=config,
-        model_load_seconds=load_seconds,
-        peak_gpu_memory=lambda: int(torch.cuda.max_memory_allocated()),
-    )
+    memory_thread.start()
+    try:
+        engine, sampling_params_factory, load_seconds = create_engine(
+            model,
+            config,
+            model_path=str(snapshot),
+        )
+        run = run_greedy_batch(
+            engine=engine,
+            sampling_params_factory=sampling_params_factory,
+            model=model,
+            source=SourceIdentity(
+                commit=candidate_commit,
+                bundle_sha256=source_bundle_sha256,
+            ),
+            hardware=HardwareIdentity(
+                device_name=torch.cuda.get_device_name(0),
+                compute_capability=f"{properties.major}.{properties.minor}",
+                cuda_version=str(torch.version.cuda),
+            ),
+            requests=(InferenceRequest("pr4-greedy", (0, 1, 2, 3)),),
+            config=config,
+            model_load_seconds=load_seconds,
+            peak_gpu_memory=lambda: peak_gpu_memory_bytes[0],
+        )
+    finally:
+        memory_stop.set()
+        memory_thread.join(timeout=1.0)
+        nvmlShutdown()
+    if memory_errors or run.metrics.peak_gpu_memory_bytes <= 0:
+        raise RuntimeError("device-wide NVML peak sampling failed")
     payload = run.to_payload()
     if payload["requests"][0]["generated_token_ids"] != [198, 198, 504]:
         raise RuntimeError("vLLM tokens do not match the PR 4 oracle")

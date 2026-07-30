@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "source": {
+    "commit": "97c82fa9ee090af89af471c407077f888a3fd622",
+    "bundle_sha256": "cdd6312083081caa4ad31ea99f515c030b09fece7283636a0138e2b9589ec831"
+  },
+  "modal": {
+    "application_id": "ap-bzkxrYkL94NR58w8JYsO9U",
+    "url": "https://modal.com/apps/adrianmathew75/main/ap-bzkxrYkL94NR58w8JYsO9U",
+    "gpu": "NVIDIA L4",
+    "compute_capability": "8.9",
+    "maximum_compute_cost_usd": "0.239364",
+    "submitted_month_to_date_usd": "1.262100"
+  },
+  "native_cuda": {
+    "compiler": "NVIDIA CUDA 12.9.41",
+    "host_compiler": "GNU 11.4.0",
+    "build_steps": 55,
+    "ctest_passed": 6,
+    "ctest_failed": 0,
+    "linear_f16_fp32_accumulate": [
+      {
+        "rows": 1,
+        "input_features": 576,
+        "output_features": 960,
+        "average_microseconds": 5.784,
+        "tera_flops": 0.191
+      },
+      {
+        "rows": 16,
+        "input_features": 576,
+        "output_features": 960,
+        "average_microseconds": 4.794,
+        "tera_flops": 3.691
+      },
+      {
+        "rows": 256,
+        "input_features": 576,
+        "output_features": 960,
+        "average_microseconds": 8.264,
+        "tera_flops": 34.26
+      }
+    ],
+    "rms_norm_f32": [
+      {
+        "rows": 1,
+        "hidden_size": 576,
+        "average_microseconds": 2.892,
+        "logical_gib_per_second": 2.226
+      },
+      {
+        "rows": 16,
+        "hidden_size": 576,
+        "average_microseconds": 2.975,
+        "logical_gib_per_second": 23.804
+      },
+      {
+        "rows": 256,
+        "hidden_size": 576,
+        "average_microseconds": 3.678,
+        "logical_gib_per_second": 299.27
+      },
+      {
+        "rows": 1024,
+        "hidden_size": 576,
+        "average_microseconds": 8.361,
+        "logical_gib_per_second": 525.858
+      }
+    ]
+  },
+  "vllm": {
+    "version": "0.25.1",
+    "torch_cuda_runtime": "13.0",
+    "execution_mode": "eager",
+    "model_load_seconds": 175.379617663,
+    "inference_seconds": 0.18420156499999507,
+    "input_tokens": 4,
+    "output_tokens": 3,
+    "output_tokens_per_second": 16.28650657772685,
+    "prompt_token_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "generated_token_ids": [
+      198,
+      198,
+      504
+    ],
+    "checkpoint_sha256": "80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1",
+    "parent_allocator_peak_gpu_memory_bytes": 0,
+    "memory_metric_status": "invalid-parent-process-only; fixed after accepted run"
+  }
+}

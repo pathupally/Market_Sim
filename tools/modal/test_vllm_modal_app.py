@@ -27,6 +27,7 @@ class VllmModalAppTest(unittest.TestCase):
         )
         self.assertEqual(LOCK["packages"]["cmake"], "3.30.5")
         self.assertEqual(LOCK["packages"]["ninja"], "1.11.1.1")
+        self.assertEqual(LOCK["packages"]["nvidia-ml-py"], "13.610.43")
 
     def test_one_l4_run_is_bounded(self) -> None:
         self.assertEqual(MAXIMUM_COST_USD, Decimal("0.23936400"))
