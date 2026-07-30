@@ -84,6 +84,8 @@ if(MARKETFORGE_ENABLE_CUDA)
     src/cuda/cublas_handle.cu
     src/cuda/cuda_stream.cu
     src/cuda/device_buffer.cu
+    src/cuda/greedy.cu
+    src/cuda/kv_cache.cu
     src/cuda/linear.cu
     src/cuda/lifecycle_probe.cu
     src/cuda/rms_norm.cu

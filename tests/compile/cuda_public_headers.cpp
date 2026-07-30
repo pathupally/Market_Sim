@@ -3,6 +3,8 @@
 #include "marketforge/cuda/cublas_handle.hpp"
 #include "marketforge/cuda/cuda_stream.hpp"
 #include "marketforge/cuda/device_buffer.hpp"
+#include "marketforge/cuda/greedy.hpp"
+#include "marketforge/cuda/kv_cache.hpp"
 #include "marketforge/cuda/lifecycle_probe.hpp"
 #include "marketforge/cuda/linear.hpp"
 #include "marketforge/cuda/rms_norm.hpp"
