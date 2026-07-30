@@ -161,6 +161,51 @@ Remote process:
 - each attempt was bounded to $0.239364; the failed reservation remains counted
   conservatively in the project budget tracker.
 
+## Milestone 5 — composed native FP16 decoder layer
+
+Status: remotely validated
+Commits: `883f26d`, `0918106`
+
+Delivered:
+
+- causal FP16 grouped-query attention over contiguous KV storage;
+- FP16 RMSNorm, residual add, and embedding-gather kernels;
+- one explicit-stream SmolLM2 decoder-layer compositor;
+- fixed caller-owned intermediate buffers reused across attention and MLP
+  phases;
+- cuBLAS Q/K/V, output, gate/up, and down projections;
+- custom RoPE, KV write, causal GQA attention, SwiGLU, and residual kernels in
+  one vertical execution path;
+- a two-token differential test against the independent rounded-FP32 decoder
+  oracle, including resulting K/V state.
+
+Local evidence:
+
+- repository-root Python discovery: 102 passed, 1 expected skip;
+- Apple Clang Debug: 4/4 CTests passed;
+- Apple Clang ASan/UBSan: 4/4 CTests passed;
+- portable public CUDA headers compile without CUDA headers on macOS;
+- `git diff --check`: passed.
+
+Remote process:
+
+- first source-bound attempt `ap-vmg9q7hcXyPyDkOWLoMQVU` failed during
+  compilation on an incorrect `CublasHandle` validity accessor;
+- commit `0918106` changed the compositor to the established
+  `cublas.handle().valid()` interface;
+- accepted commit: `0918106604958421a40468b04393bfd6cf397b11`;
+- source archive SHA-256:
+  `0ba43f3cf258e5e3e6bc29af94a98b526f566682efe3b78fb7b7ab881f2eb7b7`;
+- accepted Modal application: `ap-UFxPIfhOmUEN0Q7VUQ7Wol`;
+- CUDA 12.9.41/GNU 11.4.0 build: 66/66 steps passed;
+- CTest: 6/6 passed, including native decoder-layer FP16/FP32 differential
+  parity;
+- vLLM prompt `[0, 1, 2, 3]` again generated `[198, 198, 504]`;
+- measured three-token vLLM request: 181.620 milliseconds;
+- device-wide NVML peak: 8,943,173,632 bytes;
+- each attempt was bounded to $0.239364; the failed reservation remains counted
+  conservatively in the project budget tracker.
+
 ## Accepted gate
 
 The source-bound Modal L4 invocation:
