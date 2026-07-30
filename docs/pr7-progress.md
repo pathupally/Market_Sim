@@ -1,6 +1,6 @@
 # PR 7 progress log
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 Branch: `codex/pr-007-inference-kernel-core`
 Base: `bf190b5`
 
@@ -26,7 +26,7 @@ Evidence:
 - Apple Clang ASan/UBSan: build passed, 4/4 CTests passed;
 - `git diff --check`: passed.
 
-Remote status: not dispatched. No PR 7 Modal cost has been incurred.
+Remote status: covered by the accepted combined gates below.
 
 ## Milestone 2 — FP16 cuBLAS model primitive
 
@@ -67,18 +67,65 @@ Remote evidence:
 - measured three-token vLLM request: 184.202 milliseconds;
 - maximum authorized compute cost: $0.239364.
 
-The complete accepted summary is in `docs/pr7-modal-result.json`. The returned
-parent-process PyTorch allocator peak was zero because vLLM owns GPU allocations
-in a spawned engine worker. This field is marked invalid in the recorded
-artifact, and the next commit uses a device-wide NVML peak sampler instead.
+The initial gate's parent-process PyTorch allocator peak was zero because vLLM
+owns GPU allocations in a spawned engine worker. Commit `16ba06c` replaced that
+invalid metric with device-wide NVML sampling, which milestone 3 validated.
+
+## Milestone 3 — FP16 RoPE and fused SwiGLU
+
+Status: remotely validated
+Commit: `99761ba`
+
+Delivered:
+
+- explicit-stream, in-place FP16 Llama half-rotation RoPE;
+- a single angle calculation per token/dimension pair shared across all 9
+  query and 3 KV heads;
+- exact allocation, checked arithmetic, alias, theta, and launch validation;
+- explicit-stream fused FP16 `SiLU(gate) * up` with supported in-place gate
+  reuse;
+- differential tests against the independent FP32 CPU oracle at tiny and exact
+  SmolLM2 GQA shapes;
+- a strict model-shaped CUDA-event benchmark for RoPE and SwiGLU.
+
+Local evidence:
+
+- repository-root Python discovery: 102 passed, 1 expected skip;
+- Apple Clang Debug: 4/4 CTests passed;
+- Apple Clang ASan/UBSan: 4/4 CTests passed;
+- `git diff --check`: passed.
+
+Remote evidence:
+
+- accepted commit: `99761ba937d24106afa01a03df86222c00bc75b8`;
+- source archive SHA-256:
+  `d4ab650eab8419a0f2979763dfff327bd3a5af64507722f45153388016ce77b7`;
+- Modal application: `ap-bkWKBEliPSSqc6GqpM6cZ9`;
+- CUDA 12.9.41/GNU 11.4.0 build: 59/59 steps passed;
+- CTest: 6/6 passed, including CUDA differential tests;
+- FP16 RoPE:
+  - rows 1: 4.102 microseconds;
+  - rows 16: 4.194 microseconds;
+  - rows 256: 4.294 microseconds, 170.772 logical GiB/s;
+- fused FP16 SwiGLU:
+  - rows 1: 2.008 microseconds;
+  - rows 16: 2.053 microseconds;
+  - rows 256: 4.409 microseconds, 498.356 logical GiB/s;
+- vLLM prompt `[0, 1, 2, 3]` again generated `[198, 198, 504]`;
+- measured three-token vLLM request: 144.992 milliseconds;
+- device-wide NVML peak: 8,943,173,632 bytes;
+- maximum authorized compute cost: $0.239364.
+
+The complete latest accepted summary is in `docs/pr7-modal-result.json`.
 
 ## Accepted gate
 
 The source-bound Modal L4 invocation:
 
 1. compile the clean Git archive with CUDA 12.9 and cuBLAS;
-2. run the CUDA unit tests, including model-shaped linear parity;
-3. record CUDA-event RMSNorm and fused-QKV benchmark JSON;
+2. run the CUDA unit tests, including model-shaped linear, RoPE, and SwiGLU
+   parity;
+3. record CUDA-event RMSNorm, fused-QKV, RoPE, and SwiGLU benchmark JSON;
 4. verify the 269 MB checkpoint from the persistent cache;
 5. run vLLM on prompt tokens `[0, 1, 2, 3]`;
 6. require output tokens `[198, 198, 504]`.
@@ -88,5 +135,5 @@ Maximum function compute cost: **$0.239364**.
 Maximum duration: **15 L4 minutes**.
 Maximum containers: **1**.
 
-No additional PR 7 Modal run is required before starting the custom RoPE and
-SwiGLU kernel milestone.
+The latest accepted gate is source-bound to milestone 3. Later kernel milestones
+must pass a new clean-source gate before PR 7 is complete.

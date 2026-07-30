@@ -2,21 +2,21 @@
   "schema_version": 1,
   "result": "pass",
   "source": {
-    "commit": "97c82fa9ee090af89af471c407077f888a3fd622",
-    "bundle_sha256": "cdd6312083081caa4ad31ea99f515c030b09fece7283636a0138e2b9589ec831"
+    "commit": "99761ba937d24106afa01a03df86222c00bc75b8",
+    "bundle_sha256": "d4ab650eab8419a0f2979763dfff327bd3a5af64507722f45153388016ce77b7"
   },
   "modal": {
-    "application_id": "ap-bzkxrYkL94NR58w8JYsO9U",
-    "url": "https://modal.com/apps/adrianmathew75/main/ap-bzkxrYkL94NR58w8JYsO9U",
+    "application_id": "ap-bkWKBEliPSSqc6GqpM6cZ9",
+    "url": "https://modal.com/apps/adrianmathew75/main/ap-bkWKBEliPSSqc6GqpM6cZ9",
     "gpu": "NVIDIA L4",
     "compute_capability": "8.9",
     "maximum_compute_cost_usd": "0.239364",
-    "submitted_month_to_date_usd": "1.262100"
+    "submitted_month_to_date_usd": "1.501464"
   },
   "native_cuda": {
     "compiler": "NVIDIA CUDA 12.9.41",
     "host_compiler": "GNU 11.4.0",
-    "build_steps": 55,
+    "build_steps": 59,
     "ctest_passed": 6,
     "ctest_failed": 0,
     "linear_f16_fp32_accumulate": [
@@ -24,48 +24,92 @@
         "rows": 1,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 5.784,
-        "tera_flops": 0.191
+        "average_microseconds": 4.662,
+        "tera_flops": 0.237
       },
       {
         "rows": 16,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 4.794,
-        "tera_flops": 3.691
+        "average_microseconds": 4.915,
+        "tera_flops": 3.6
       },
       {
         "rows": 256,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 8.264,
-        "tera_flops": 34.26
+        "average_microseconds": 8.305,
+        "tera_flops": 34.091
       }
     ],
     "rms_norm_f32": [
       {
         "rows": 1,
         "hidden_size": 576,
-        "average_microseconds": 2.892,
-        "logical_gib_per_second": 2.226
+        "average_microseconds": 2.889,
+        "logical_gib_per_second": 2.228
       },
       {
         "rows": 16,
         "hidden_size": 576,
-        "average_microseconds": 2.975,
-        "logical_gib_per_second": 23.804
+        "average_microseconds": 2.967,
+        "logical_gib_per_second": 23.87
       },
       {
         "rows": 256,
         "hidden_size": 576,
-        "average_microseconds": 3.678,
-        "logical_gib_per_second": 299.27
+        "average_microseconds": 3.666,
+        "logical_gib_per_second": 300.273
       },
       {
         "rows": 1024,
         "hidden_size": 576,
-        "average_microseconds": 8.361,
-        "logical_gib_per_second": 525.858
+        "average_microseconds": 8.32,
+        "logical_gib_per_second": 528.447
+      }
+    ],
+    "transformer_elementwise_f16": [
+      {
+        "operation": "rope_f16",
+        "rows": 1,
+        "elements": 768,
+        "average_microseconds": 4.102,
+        "logical_gib_per_second": 0.698
+      },
+      {
+        "operation": "rope_f16",
+        "rows": 16,
+        "elements": 12288,
+        "average_microseconds": 4.194,
+        "logical_gib_per_second": 10.928
+      },
+      {
+        "operation": "rope_f16",
+        "rows": 256,
+        "elements": 196608,
+        "average_microseconds": 4.294,
+        "logical_gib_per_second": 170.772
+      },
+      {
+        "operation": "swiglu_f16",
+        "rows": 1,
+        "elements": 1536,
+        "average_microseconds": 2.008,
+        "logical_gib_per_second": 4.275
+      },
+      {
+        "operation": "swiglu_f16",
+        "rows": 16,
+        "elements": 24576,
+        "average_microseconds": 2.053,
+        "logical_gib_per_second": 66.888
+      },
+      {
+        "operation": "swiglu_f16",
+        "rows": 256,
+        "elements": 393216,
+        "average_microseconds": 4.409,
+        "logical_gib_per_second": 498.356
       }
     ]
   },
@@ -73,11 +117,12 @@
     "version": "0.25.1",
     "torch_cuda_runtime": "13.0",
     "execution_mode": "eager",
-    "model_load_seconds": 175.379617663,
-    "inference_seconds": 0.18420156499999507,
+    "model_load_seconds": 158.542846574,
+    "inference_seconds": 0.14499224800002253,
     "input_tokens": 4,
     "output_tokens": 3,
-    "output_tokens_per_second": 16.28650657772685,
+    "output_tokens_per_second": 20.690761343320464,
+    "requests_per_second": 6.896920447773488,
     "prompt_token_ids": [
       0,
       1,
@@ -90,7 +135,7 @@
       504
     ],
     "checkpoint_sha256": "80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1",
-    "parent_allocator_peak_gpu_memory_bytes": 0,
-    "memory_metric_status": "invalid-parent-process-only; fixed after accepted run"
+    "peak_gpu_memory_bytes": 8943173632,
+    "memory_metric_status": "valid-device-wide-nvml"
   }
 }
