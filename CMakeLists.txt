@@ -117,6 +117,7 @@ if(MARKETFORGE_ENABLE_CUDA)
   target_link_libraries(
     marketforge_cuda
     PRIVATE
+      MarketForge::core
       CUDA::cublas
       CUDA::cudart
   )
