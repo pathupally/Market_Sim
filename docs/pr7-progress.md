@@ -206,22 +206,70 @@ Remote process:
 - each attempt was bounded to $0.239364; the failed reservation remains counted
   conservatively in the project budget tracker.
 
+## Milestone 6 — full native SmolLM2 prefill and decode
+
+Status: remotely validated; PR 7 implementation complete
+Commits: `24c08d0`, `182e504`
+
+Delivered:
+
+- locked BF16 safetensors loading through the existing safe model binder;
+- deterministic BF16-to-FP16 device-weight materialization;
+- tied embedding/output-head storage;
+- all 30 SmolLM2 decoder layers on the native CUDA compositor;
+- per-layer contiguous FP16 K/V caches;
+- separate fixed prefill and decode workspaces;
+- final FP16 RMSNorm, tied LM-head projection, and deterministic greedy select;
+- strict native inference evidence embedded in the combined gate;
+- exact three-step native token parity with the CPU/PyTorch fixture and vLLM.
+
+Local evidence:
+
+- repository-root Python discovery: 103 passed, 1 expected skip;
+- Apple Clang Debug: 4/4 CTests passed;
+- Apple Clang ASan/UBSan: 4/4 CTests passed;
+- portable public CUDA headers compile without CUDA headers on macOS;
+- `git diff --check`: passed.
+
+Remote process:
+
+- first source-bound attempt `ap-SYiL3qoF194M3u18mFqJyz` compiled all native
+  sources but failed at the final static link because `marketforge_cuda` had
+  not yet declared its direct `MarketForge::core` dependency;
+- commit `182e504` records that target dependency;
+- accepted commit: `182e5047748aaf2744e24c4d34d281f15fb60e70`;
+- source archive SHA-256:
+  `1ef5a05a22fb1501b09cd8250975d70e31bf8b1d506135a1111ff1138e8fece4`;
+- accepted Modal application: `ap-j6LvUOCbJJHsMlAtYQ5ZeT`;
+- CUDA 12.9.41/GNU 11.4.0 build: 69/69 steps passed;
+- CTest: 6/6 passed;
+- native FP16 prompt `[0, 1, 2, 3]` plus two decode calls generated
+  `[198, 198, 504]`;
+- vLLM independently generated `[198, 198, 504]`;
+- native model load: 438.170 milliseconds;
+- native three-step inference: 286.153 milliseconds;
+- native owned device memory: 269,372,588 bytes;
+- vLLM measured three-token request: 139.291 milliseconds;
+- vLLM device-wide NVML peak: 8,943,173,632 bytes;
+- each attempt was bounded to $0.239364; the failed reservation remains counted
+  conservatively in the project budget tracker.
+
 ## Accepted gate
 
 The source-bound Modal L4 invocation:
 
 1. compile the clean Git archive with CUDA 12.9 and cuBLAS;
-2. run the CUDA unit tests, including model-shaped linear, RoPE, and SwiGLU
-   parity;
+2. run CUDA unit tests, including model-shaped primitives and composed
+   decoder-layer differential parity;
 3. record CUDA-event RMSNorm, fused-QKV, RoPE, and SwiGLU benchmark JSON;
 4. verify the 269 MB checkpoint from the persistent cache;
-5. run vLLM on prompt tokens `[0, 1, 2, 3]`;
-6. require output tokens `[198, 198, 504]`.
+5. run the full 30-layer native FP16 prefill/decode path;
+6. run vLLM on prompt tokens `[0, 1, 2, 3]`;
+7. require both backends to produce `[198, 198, 504]`.
 
 Result: **passed**.
 Maximum function compute cost: **$0.239364**.
 Maximum duration: **15 L4 minutes**.
 Maximum containers: **1**.
 
-The latest accepted gate is source-bound to milestone 3. Later kernel milestones
-must pass a new clean-source gate before PR 7 is complete.
+The latest accepted gate is source-bound to the complete PR 7 implementation.

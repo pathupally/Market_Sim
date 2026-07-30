@@ -1,6 +1,6 @@
 # PR 7 contract: vLLM inference and native CUDA model core
 
-Status: implementation started
+Status: complete
 Date: 2026-07-29
 Base commit: `bf190b5`
 
@@ -21,8 +21,10 @@ fixtures.
 
 1. Backend-neutral inference record and bounded vLLM L4 smoke.
 2. FP16/BF16 device weight materialization and explicit-stream cuBLAS adapter.
-3. RoPE, SwiGLU, KV-write, and greedy-selection CUDA kernels.
-4. Contiguous-KV native SmolLM2 prefill/decode with three-backend comparison.
+3. RoPE and SwiGLU CUDA kernels.
+4. Contiguous KV-write and greedy-selection CUDA kernels.
+5. Causal GQA attention and a composed decoder-layer differential.
+6. Contiguous-KV native SmolLM2 prefill/decode with three-backend comparison.
 
 Each milestone must keep local CPU tests green. GPU milestones require a
 source-bound Modal result before their performance claims are accepted.
@@ -62,3 +64,12 @@ PR 8 ablations and must use the same artifact schema.
 The same L4 invocation also builds the native CUDA library, runs its CTests,
 and records CUDA-event RMSNorm and fused-QKV cuBLAS benchmark artifacts. This
 keeps source upload, model transfer, and GPU authorization to one bounded run.
+
+## Completion evidence
+
+The accepted source-bound gate for commit `182e504` builds all 69 targets,
+passes 6/6 CTests, and runs the locked 269 MB checkpoint through both native
+FP16 CUDA and vLLM 0.25.1. Both backends produce greedy tokens
+`[198, 198, 504]` from prompt IDs `[0, 1, 2, 3]`. Full evidence and the
+failed-attempt audit trail are recorded in `docs/pr7-modal-result.json` and
+`docs/pr7-progress.md`.

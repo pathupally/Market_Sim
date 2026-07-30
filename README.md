@@ -5,15 +5,16 @@ stateful, short-output agents. Its demonstration workload is a small
 prediction-market simulation; the primary engineering work is inference
 scheduling, KV-cache ownership, constrained decoding, and CUDA performance.
 
-The implementation is complete through PR 6, with PR 7 now in progress:
+The implementation is complete through PR 7:
 portable tensor/model contracts,
 safe mapped SmolLM2 loading, a readable FP32 CPU decoder-layer oracle,
 pretokenized full-model greedy decode, an immutable tokenizer-derived action
-DFA, and a deterministic integer-accounted market trace. The locked 30-layer
-checkpoint produces complete logits and margin-qualified greedy tokens that
-match a pinned PyTorch fixture. Repeated decode retains fixed runtime storage,
-and the CUDA foundation includes explicit streams, device buffers, lifecycle
-checks, and a SmolLM2-shaped RMSNorm kernel.
+DFA, a deterministic integer-accounted market trace, and independent vLLM and
+native CUDA inference paths. The locked 30-layer checkpoint produces exact
+margin-qualified greedy tokens across the PyTorch fixture, FP32 CPU oracle,
+native FP16 CUDA runtime, and vLLM. The native path includes explicit streams,
+cuBLAS projections, contiguous FP16 KV, and custom RMSNorm, RoPE, causal GQA
+attention, SwiGLU, residual, embedding, KV-write, and greedy kernels.
 
 PR 7 uses two GPU lanes: pinned vLLM for an immediate end-to-end serving
 baseline and a separate native C++/CUDA implementation for kernel and memory
