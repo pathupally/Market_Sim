@@ -120,3 +120,11 @@ Remote process:
 - its complete $0.239364 ceiling also remains counted conservatively;
 - the gate now uses `modal.is_local()` and an explicit `Image.add_local_file`
   lock mount, so remote imports make no assumption about local path depth.
+- attempt `ap-Wgvy7OiQaCfOkeMhdOlhVu` passed container import, the CUDA
+  build/tests/benchmarks, checkpoint verification, and native inference, then
+  reached the 900-second ceiling while waiting for the first isolated vLLM
+  subprocess to exit;
+- its complete $0.239364 ceiling remains counted conservatively;
+- the worker now calls the documented engine/engine-core `shutdown()` path
+  with a timeout before returning its artifact, then forces collection so
+  vLLM's background processes and GPU state cannot keep the child alive.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from pathlib import Path
 import re
@@ -75,6 +76,26 @@ def _generated(payload: dict[str, object]) -> list[list[int]]:
     ]
 
 
+def _shutdown_engine(engine: object, *, timeout: float = 30.0) -> None:
+    llm_engine = getattr(engine, "llm_engine", None)
+    candidates = (
+        engine,
+        llm_engine,
+        getattr(llm_engine, "engine_core", None),
+        getattr(llm_engine, "engine_core_client", None),
+    )
+    for candidate in candidates:
+        shutdown = getattr(candidate, "shutdown", None)
+        if not callable(shutdown):
+            continue
+        try:
+            shutdown(timeout=timeout)
+        except TypeError:
+            shutdown()
+        return
+    raise RuntimeError("vLLM engine exposes no shutdown path")
+
+
 def _run_mode(
     *,
     mode: str,
@@ -144,6 +165,7 @@ def _run_mode(
         daemon=True,
     )
     memory_thread.start()
+    engine: object | None = None
     try:
         engine, sampling_params_factory, load_seconds = create_engine(
             model,
@@ -187,9 +209,15 @@ def _run_mode(
                 **run_arguments,
             ).to_payload()
     finally:
-        memory_stop.set()
-        memory_thread.join(timeout=1.0)
-        nvmlShutdown()
+        try:
+            if engine is not None:
+                _shutdown_engine(engine)
+                engine = None
+                gc.collect()
+        finally:
+            memory_stop.set()
+            memory_thread.join(timeout=1.0)
+            nvmlShutdown()
 
     if memory_errors or peak_gpu_memory_bytes[0] <= 0:
         raise RuntimeError("device-wide NVML peak sampling failed")

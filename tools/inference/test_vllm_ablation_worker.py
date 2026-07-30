@@ -5,6 +5,7 @@ from tools.inference.vllm_ablation_worker import (
     BATCH_SIZE,
     PREFIX_BATCH_SIZE,
     PREFIX_TOKENS,
+    _shutdown_engine,
     shared_prefix_requests,
     standard_requests,
 )
@@ -58,6 +59,29 @@ class VllmAblationWorkerTest(unittest.TestCase):
         ):
             with self.subTest(call=call), self.assertRaises(ValueError):
                 call()
+
+    def test_shutdown_uses_vllm_engine_core_timeout(self) -> None:
+        class Core:
+            timeout: float | None = None
+
+            def shutdown(self, *, timeout: float) -> None:
+                self.timeout = timeout
+
+        class LlmEngine:
+            def __init__(self) -> None:
+                self.engine_core = Core()
+
+        class Engine:
+            def __init__(self) -> None:
+                self.llm_engine = LlmEngine()
+
+        engine = Engine()
+        _shutdown_engine(engine, timeout=12.5)
+        self.assertEqual(engine.llm_engine.engine_core.timeout, 12.5)
+
+    def test_shutdown_fails_closed_without_a_lifecycle_hook(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _shutdown_engine(object())
 
 
 if __name__ == "__main__":
