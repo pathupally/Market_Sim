@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "base_image": {
+    "reference": "nvidia/cuda:12.9.0-devel-ubuntu22.04@sha256:26cd7d00c09c1f3ff187929c7f4aa7e9273020cb18e86730f40e062e8ffa4d33",
+    "index_digest": "sha256:26cd7d00c09c1f3ff187929c7f4aa7e9273020cb18e86730f40e062e8ffa4d33",
+    "linux_amd64_digest": "sha256:0a254a86e28379f7a761c73caf4874247d5e3fbcf57bd99a44856ccf9098e092",
+    "cuda": "12.9.0",
+    "operating_system": "ubuntu22.04"
+  },
+  "python": "3.12",
+  "packages": {
+    "modal": "1.3.5",
+    "vllm": "0.25.1"
+  },
+  "model": {
+    "id": "smollm2-135m",
+    "repository": "HuggingFaceTB/SmolLM2-135M",
+    "revision": "93efa2f097d58c2a74874c7e644dbc9b0cee75a2",
+    "checkpoint_sha256": "80521b40281d6ce74e35c9282c22539e75aa0ac8578892b2a59955ef78d55da1",
+    "checkpoint_bytes": 269060552,
+    "vocabulary_size": 49152
+  },
+  "execution": {
+    "gpu": "L4",
+    "timeout_seconds": 900,
+    "physical_cores": 2,
+    "memory_mib": 8192,
+    "max_containers": 1,
+    "max_model_len": 512,
+    "max_num_seqs": 16,
+    "gpu_memory_utilization": 0.35
+  }
+}

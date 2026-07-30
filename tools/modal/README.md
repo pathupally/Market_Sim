@@ -106,3 +106,36 @@ Attempts 6 and 7 are mathematically possible, but no further dispatch is
 authorized without explicit user approval. Raw profiler captures remain in
 remote temporary storage and are deleted after structured capability
 verification.
+
+## PR 7 vLLM conformance
+
+The PR 7 baseline uses vLLM 0.25.1 and the locked 269 MB SmolLM2 checkpoint in
+a digest-qualified CUDA 12.9 image. It sends token IDs directly, disables
+tokenizer initialization and detokenization, generates exactly three greedy
+tokens, and requires `[198, 198, 504]` from the existing PR 4 oracle.
+
+The first run uses eager execution so CUDA Graphs cannot obscure basic model
+parity. Prefix caching and graph execution are separate PR 8 ablations. The
+checkpoint cache is a Modal Volume outside Git; every invocation verifies the
+file size and SHA-256 before model construction.
+
+Run all local Python tests from the repository root so the `tools.modal`
+package cannot shadow the installed Modal SDK:
+
+```bash
+.venv/bin/python -m unittest discover -s . -p 'test_*.py'
+```
+
+After committing a clean candidate, the one-container, 15-minute L4 ceiling is
+$0.239364:
+
+```bash
+.venv/bin/modal run -m tools.modal.vllm_modal_app \
+  --month-to-date-usd 1.262100
+```
+
+Replace the example spend with the current Modal project spend. The local
+entrypoint rejects a dirty tree, creates an immutable Git archive, checks the
+$24 project soft cap, and binds the returned inference artifact to the commit
+and archive SHA-256. Image build and model-transfer charges, if any, are
+separate from the compute ceiling.
