@@ -34,9 +34,15 @@ from tools.modal.modal_budget import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REMOTE_LOCK_PATH = Path("/root/marketforge-vllm-lock.json")
+if modal.is_local():
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+    LOCK_PATH = PROJECT_ROOT / "tools/modal/vllm-lock.json"
+else:
+    PROJECT_ROOT = Path("/root")
+    LOCK_PATH = REMOTE_LOCK_PATH
 LOCK = json.loads(
-    (PROJECT_ROOT / "tools/modal/vllm-lock.json").read_text(encoding="utf-8")
+    LOCK_PATH.read_text(encoding="utf-8")
 )
 EXECUTION = LOCK["execution"]
 MODEL = LOCK["model"]
@@ -600,6 +606,11 @@ vllm_image = (
     )
     .add_local_python_source("tools")
 )
+if modal.is_local():
+    vllm_image = vllm_image.add_local_file(
+        LOCK_PATH,
+        str(REMOTE_LOCK_PATH),
+    )
 
 model_cache = modal.Volume.from_name(
     "marketforge-smollm2-v1",

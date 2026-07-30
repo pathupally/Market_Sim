@@ -113,3 +113,10 @@ Remote process:
 - the app was stopped, and the complete $0.239364 ceiling remains counted
   conservatively in the project budget tracker;
 - lock loading now occurs only inside the extracted source-bound worker.
+- attempt `ap-9FIbqhhVX9XaVsengswyl7` then exposed the gate module's older
+  import-time assumption that its mounted path retained the local directory
+  depth; Modal mounts the entry module at `/root/vllm_modal_app.py`;
+- no CUDA build, benchmark, model load, or inference ran in that attempt;
+- its complete $0.239364 ceiling also remains counted conservatively;
+- the gate now uses `modal.is_local()` and an explicit `Image.add_local_file`
+  lock mount, so remote imports make no assumption about local path depth.
