@@ -58,6 +58,21 @@ target_link_libraries(marketforge_grammar PUBLIC MarketForge::core)
 marketforge_set_warnings(marketforge_grammar)
 marketforge_enable_sanitizers(marketforge_grammar)
 
+add_library(marketforge_serving
+  src/serving/sequence_scheduler.cpp
+)
+add_library(MarketForge::serving ALIAS marketforge_serving)
+target_compile_features(marketforge_serving PUBLIC cxx_std_20)
+target_include_directories(
+  marketforge_serving
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
+)
+target_link_libraries(marketforge_serving PUBLIC MarketForge::core)
+marketforge_set_warnings(marketforge_serving)
+marketforge_enable_sanitizers(marketforge_serving)
+
 add_library(marketforge_market
   src/market/batch_market.cpp
 )
@@ -173,13 +188,16 @@ if(BUILD_TESTING)
     tests/unit/loader_tests.cpp
     tests/unit/market_tests.cpp
     tests/unit/model_spec_tests.cpp
+    tests/unit/sequence_scheduler_tests.cpp
     tests/property/action_dfa_properties.cpp
     tests/property/market_properties.cpp
     tests/unit/test_main.cpp
   )
   target_link_libraries(
     marketforge_unit_tests
-    PRIVATE MarketForge::market
+    PRIVATE
+      MarketForge::market
+      MarketForge::serving
   )
   target_include_directories(
     marketforge_unit_tests
