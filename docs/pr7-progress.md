@@ -118,6 +118,49 @@ Remote evidence:
 
 The complete latest accepted summary is in `docs/pr7-modal-result.json`.
 
+## Milestone 4 — contiguous FP16 KV write and greedy selection
+
+Status: remotely validated
+Commits: `16f9b0f`, `4042428`
+
+Delivered:
+
+- explicit-stream FP16 writes from packed key/value tensors into contiguous
+  `[batch, maximum_context, 3, 64]` caches;
+- bounds-guarded device positions, exact allocation checks, alias rejection,
+  and checked shape arithmetic;
+- deterministic block-reduction greedy selection over FP16 logits;
+- lowest-token-ID tie behavior across reduction lanes;
+- NaN-loses semantics and a defined all-NaN fallback;
+- tiny, batched, sparse-position, untouched-cache, and full 49,152-vocabulary
+  differential tests.
+
+Local evidence:
+
+- repository-root Python discovery: 102 passed, 1 expected skip;
+- Apple Clang Debug: 4/4 CTests passed;
+- Apple Clang ASan/UBSan: 4/4 CTests passed;
+- `git diff --check`: passed.
+
+Remote process:
+
+- first source-bound attempt `ap-4ftVs1KlLbAPHyKWheHUEa` failed during NVCC
+  compilation because `std::numeric_limits` members are host-only under the
+  pinned CUDA frontend;
+- commit `4042428` replaced those expressions with explicit device constants;
+- accepted commit: `4042428c0edc10a47e8a9480b8c236985221e263`;
+- source archive SHA-256:
+  `f0d308cdd1503baec2e77bf7310553a4ced51d2798f30df0c8ec81efde4097fa`;
+- accepted Modal application: `ap-rBeYAoSg3HuV35yYCZ50Xf`;
+- CUDA 12.9.41/GNU 11.4.0 build: 61/61 steps passed;
+- CTest: 6/6 passed, including KV-cache mutation and full-vocabulary greedy
+  tests;
+- vLLM prompt `[0, 1, 2, 3]` again generated `[198, 198, 504]`;
+- measured three-token vLLM request: 141.785 milliseconds;
+- device-wide NVML peak: 8,943,173,632 bytes;
+- each attempt was bounded to $0.239364; the failed reservation remains counted
+  conservatively in the project budget tracker.
+
 ## Accepted gate
 
 The source-bound Modal L4 invocation:

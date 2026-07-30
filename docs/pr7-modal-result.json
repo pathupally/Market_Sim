@@ -2,21 +2,21 @@
   "schema_version": 1,
   "result": "pass",
   "source": {
-    "commit": "99761ba937d24106afa01a03df86222c00bc75b8",
-    "bundle_sha256": "d4ab650eab8419a0f2979763dfff327bd3a5af64507722f45153388016ce77b7"
+    "commit": "4042428c0edc10a47e8a9480b8c236985221e263",
+    "bundle_sha256": "f0d308cdd1503baec2e77bf7310553a4ced51d2798f30df0c8ec81efde4097fa"
   },
   "modal": {
-    "application_id": "ap-bkWKBEliPSSqc6GqpM6cZ9",
-    "url": "https://modal.com/apps/adrianmathew75/main/ap-bkWKBEliPSSqc6GqpM6cZ9",
+    "application_id": "ap-rBeYAoSg3HuV35yYCZ50Xf",
+    "url": "https://modal.com/apps/adrianmathew75/main/ap-rBeYAoSg3HuV35yYCZ50Xf",
     "gpu": "NVIDIA L4",
     "compute_capability": "8.9",
     "maximum_compute_cost_usd": "0.239364",
-    "submitted_month_to_date_usd": "1.501464"
+    "submitted_month_to_date_usd": "1.980192"
   },
   "native_cuda": {
     "compiler": "NVIDIA CUDA 12.9.41",
     "host_compiler": "GNU 11.4.0",
-    "build_steps": 59,
+    "build_steps": 61,
     "ctest_passed": 6,
     "ctest_failed": 0,
     "linear_f16_fp32_accumulate": [
@@ -24,48 +24,48 @@
         "rows": 1,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 4.662,
-        "tera_flops": 0.237
+        "average_microseconds": 4.537,
+        "tera_flops": 0.244
       },
       {
         "rows": 16,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 4.915,
-        "tera_flops": 3.6
+        "average_microseconds": 4.83,
+        "tera_flops": 3.664
       },
       {
         "rows": 256,
         "input_features": 576,
         "output_features": 960,
-        "average_microseconds": 8.305,
-        "tera_flops": 34.091
+        "average_microseconds": 8.286,
+        "tera_flops": 34.168
       }
     ],
     "rms_norm_f32": [
       {
         "rows": 1,
         "hidden_size": 576,
-        "average_microseconds": 2.889,
-        "logical_gib_per_second": 2.228
+        "average_microseconds": 2.855,
+        "logical_gib_per_second": 2.254
       },
       {
         "rows": 16,
         "hidden_size": 576,
-        "average_microseconds": 2.967,
-        "logical_gib_per_second": 23.87
+        "average_microseconds": 2.969,
+        "logical_gib_per_second": 23.853
       },
       {
         "rows": 256,
         "hidden_size": 576,
-        "average_microseconds": 3.666,
-        "logical_gib_per_second": 300.273
+        "average_microseconds": 3.684,
+        "logical_gib_per_second": 298.771
       },
       {
         "rows": 1024,
         "hidden_size": 576,
-        "average_microseconds": 8.32,
-        "logical_gib_per_second": 528.447
+        "average_microseconds": 8.315,
+        "logical_gib_per_second": 528.772
       }
     ],
     "transformer_elementwise_f16": [
@@ -73,43 +73,43 @@
         "operation": "rope_f16",
         "rows": 1,
         "elements": 768,
-        "average_microseconds": 4.102,
-        "logical_gib_per_second": 0.698
+        "average_microseconds": 3.955,
+        "logical_gib_per_second": 0.724
       },
       {
         "operation": "rope_f16",
         "rows": 16,
         "elements": 12288,
-        "average_microseconds": 4.194,
-        "logical_gib_per_second": 10.928
+        "average_microseconds": 4.123,
+        "logical_gib_per_second": 11.118
       },
       {
         "operation": "rope_f16",
         "rows": 256,
         "elements": 196608,
-        "average_microseconds": 4.294,
-        "logical_gib_per_second": 170.772
+        "average_microseconds": 4.26,
+        "logical_gib_per_second": 172.16
       },
       {
         "operation": "swiglu_f16",
         "rows": 1,
         "elements": 1536,
-        "average_microseconds": 2.008,
-        "logical_gib_per_second": 4.275
+        "average_microseconds": 1.993,
+        "logical_gib_per_second": 4.306
       },
       {
         "operation": "swiglu_f16",
         "rows": 16,
         "elements": 24576,
-        "average_microseconds": 2.053,
-        "logical_gib_per_second": 66.888
+        "average_microseconds": 2.064,
+        "logical_gib_per_second": 66.523
       },
       {
         "operation": "swiglu_f16",
         "rows": 256,
         "elements": 393216,
-        "average_microseconds": 4.409,
-        "logical_gib_per_second": 498.356
+        "average_microseconds": 4.405,
+        "logical_gib_per_second": 498.784
       }
     ]
   },
@@ -117,12 +117,12 @@
     "version": "0.25.1",
     "torch_cuda_runtime": "13.0",
     "execution_mode": "eager",
-    "model_load_seconds": 158.542846574,
-    "inference_seconds": 0.14499224800002253,
+    "model_load_seconds": 152.052766329,
+    "inference_seconds": 0.14178464200000462,
     "input_tokens": 4,
     "output_tokens": 3,
-    "output_tokens_per_second": 20.690761343320464,
-    "requests_per_second": 6.896920447773488,
+    "output_tokens_per_second": 21.1588501947898,
+    "requests_per_second": 7.0529500649299335,
     "prompt_token_ids": [
       0,
       1,
