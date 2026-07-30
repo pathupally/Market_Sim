@@ -5,6 +5,7 @@
 #include <limits>
 
 #include <cuda_fp16.h>
+#include <math_constants.h>
 #include <cuda_runtime_api.h>
 
 #include "cuda_internal.hpp"
@@ -13,6 +14,7 @@ namespace marketforge::cuda {
 namespace {
 
 constexpr std::uint32_t threads_per_block = 256;
+constexpr std::uint32_t invalid_token_id = 0xFFFF'FFFFU;
 
 __global__ void greedy_kernel(const __half* logits,
                               std::uint32_t* token_ids,
@@ -21,8 +23,8 @@ __global__ void greedy_kernel(const __half* logits,
   __shared__ std::uint32_t indices[threads_per_block];
   const auto row = static_cast<std::uint64_t>(blockIdx.x);
   const auto row_offset = row * vocabulary_size;
-  float maximum = -std::numeric_limits<float>::infinity();
-  std::uint32_t token_id = std::numeric_limits<std::uint32_t>::max();
+  float maximum = -CUDART_INF_F;
+  std::uint32_t token_id = invalid_token_id;
   for (std::uint64_t column = threadIdx.x; column < vocabulary_size;
        column += blockDim.x) {
     const float value = __half2float(logits[row_offset + column]);
@@ -50,10 +52,7 @@ __global__ void greedy_kernel(const __half* logits,
     __syncthreads();
   }
   if (threadIdx.x == 0) {
-    token_ids[row] =
-        indices[0] == std::numeric_limits<std::uint32_t>::max()
-            ? 0
-            : indices[0];
+    token_ids[row] = indices[0] == invalid_token_id ? 0 : indices[0];
   }
 }
 
