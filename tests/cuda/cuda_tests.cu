@@ -27,6 +27,7 @@
 #include "marketforge/cuda/rms_norm.hpp"
 #include "marketforge/cuda/rope.hpp"
 #include "marketforge/cuda/swiglu.hpp"
+#include "marketforge/grammar/smollm2_market_actions.hpp"
 #include "test_support.hpp"
 
 namespace {
@@ -563,6 +564,138 @@ void run_greedy_parity_case(const std::uint64_t rows,
   }
 }
 
+void run_restricted_greedy_dfa_parity_case() {
+  auto catalog_result = marketforge::SmolLm2MarketActionCatalog::create();
+  MF_CHECK(catalog_result);
+  auto catalog = std::move(catalog_result).value();
+  const auto& dfa = catalog.dfa();
+
+  std::vector<marketforge::GrammarState> states;
+  std::vector<std::vector<marketforge::token_id_t>> allowed_by_row;
+  std::size_t maximum_allowed_tokens = 0;
+  for (std::uint32_t state = 0;
+       state < dfa.state_count() && states.size() < 8; ++state) {
+    const auto allowed = dfa.allowed(marketforge::GrammarState{state});
+    MF_CHECK(allowed);
+    if (allowed.value().empty()) {
+      continue;
+    }
+    states.push_back(marketforge::GrammarState{state});
+    std::vector<marketforge::token_id_t> tokens;
+    for (const auto& arc : allowed.value()) {
+      tokens.push_back(arc.token);
+    }
+    maximum_allowed_tokens =
+        std::max(maximum_allowed_tokens, tokens.size());
+    allowed_by_row.push_back(std::move(tokens));
+  }
+  MF_CHECK(!states.empty());
+
+  const auto rows = states.size();
+  const auto vocabulary_size =
+      marketforge::SmolLm2MarketActionCatalog::vocabulary_size();
+  const auto logits_elements = rows * vocabulary_size;
+  const auto allowed_elements = rows * maximum_allowed_tokens;
+  std::vector<__half> logits(logits_elements, __float2half_rn(-8.0F));
+  std::vector<std::uint32_t> allowed_tokens(
+      allowed_elements,
+      marketforge::cuda::restricted_greedy_invalid_token_id);
+  std::vector<std::uint32_t> allowed_counts(rows);
+  std::vector<std::uint32_t> expected(rows);
+  std::vector<std::uint32_t> observed(rows);
+
+  for (std::size_t row = 0; row < rows; ++row) {
+    const auto& candidates = allowed_by_row[row];
+    allowed_counts[row] = static_cast<std::uint32_t>(candidates.size());
+    auto disallowed = vocabulary_size - 1U;
+    while (std::find(candidates.begin(), candidates.end(), disallowed) !=
+           candidates.end()) {
+      --disallowed;
+    }
+    logits[row * vocabulary_size + disallowed] =
+        __float2half_rn(100.0F);
+
+    auto winner = marketforge::cuda::restricted_greedy_invalid_token_id;
+    float maximum = -std::numeric_limits<float>::infinity();
+    auto fallback = marketforge::cuda::restricted_greedy_invalid_token_id;
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+      const auto token = candidates[index];
+      allowed_tokens[row * maximum_allowed_tokens + index] = token;
+      const float value =
+          row == 0
+              ? 4.0F
+              : (row == 1
+                     ? std::numeric_limits<float>::quiet_NaN()
+                     : static_cast<float>((token * 17U + row) % 31U));
+      logits[row * vocabulary_size + token] = __float2half_rn(value);
+      const float rounded =
+          __half2float(logits[row * vocabulary_size + token]);
+      fallback = std::min(fallback, token);
+      if (rounded > maximum ||
+          (rounded == maximum && token < winner)) {
+        maximum = rounded;
+        winner = token;
+      }
+    }
+    expected[row] =
+        winner == marketforge::cuda::restricted_greedy_invalid_token_id
+            ? fallback
+            : winner;
+  }
+
+  auto stream_result = CudaStream::create();
+  auto logits_result =
+      DeviceBuffer::allocate(logits.size() * sizeof(__half));
+  auto allowed_result =
+      DeviceBuffer::allocate(allowed_tokens.size() *
+                             sizeof(std::uint32_t));
+  auto counts_result =
+      DeviceBuffer::allocate(allowed_counts.size() *
+                             sizeof(std::uint32_t));
+  auto output_result =
+      DeviceBuffer::allocate(observed.size() * sizeof(std::uint32_t));
+  MF_CHECK(stream_result);
+  MF_CHECK(logits_result);
+  MF_CHECK(allowed_result);
+  MF_CHECK(counts_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer logits_device = std::move(logits_result).value();
+  DeviceBuffer allowed_device = std::move(allowed_result).value();
+  DeviceBuffer counts_device = std::move(counts_result).value();
+  DeviceBuffer output_device = std::move(output_result).value();
+  MF_CHECK(logits_device
+               .copy_from_host_async(logits.data(),
+                                     logits.size() * sizeof(__half), 0,
+                                     stream.handle())
+               .ok());
+  MF_CHECK(allowed_device
+               .copy_from_host_async(
+                   allowed_tokens.data(),
+                   allowed_tokens.size() * sizeof(std::uint32_t), 0,
+                   stream.handle())
+               .ok());
+  MF_CHECK(counts_device
+               .copy_from_host_async(
+                   allowed_counts.data(),
+                   allowed_counts.size() * sizeof(std::uint32_t), 0,
+                   stream.handle())
+               .ok());
+  MF_CHECK(marketforge::cuda::restricted_greedy_select_f16(
+               logits_device, allowed_device, counts_device, output_device,
+               rows, vocabulary_size, maximum_allowed_tokens,
+               stream.handle())
+               .ok());
+  MF_CHECK(output_device
+               .copy_to_host_async(
+                   observed.data(),
+                   observed.size() * sizeof(std::uint32_t), 0,
+                   stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  MF_CHECK_EQ(observed, expected);
+}
+
 MF_TEST(cuda_error_classification_preserves_numeric_detail) {
   const auto runtime =
       marketforge::cuda::detail::runtime_status(cudaErrorInvalidValue);
@@ -928,6 +1061,116 @@ MF_TEST(cuda_greedy_f16_rejects_invalid_metadata_before_launch) {
                   stream.handle())
                   .code,
               ErrorCode::resource_limit);
+}
+
+MF_TEST(cuda_restricted_greedy_f16_matches_market_action_dfa) {
+  run_restricted_greedy_dfa_parity_case();
+}
+
+MF_TEST(cuda_restricted_greedy_f16_defines_invalid_device_rows) {
+  constexpr std::uint64_t rows = 1;
+  constexpr std::uint64_t vocabulary_size = 8;
+  constexpr std::uint64_t maximum_allowed = 4;
+  std::array<__half, vocabulary_size> logits{};
+  std::array<std::uint32_t, maximum_allowed> allowed{1, 3, 5, 7};
+  std::array<std::uint32_t, rows> counts{0};
+  std::array<std::uint32_t, rows> observed{};
+
+  auto stream_result = CudaStream::create();
+  auto logits_result = DeviceBuffer::allocate(sizeof(logits));
+  auto allowed_result = DeviceBuffer::allocate(sizeof(allowed));
+  auto counts_result = DeviceBuffer::allocate(sizeof(counts));
+  auto output_result = DeviceBuffer::allocate(sizeof(observed));
+  MF_CHECK(stream_result);
+  MF_CHECK(logits_result);
+  MF_CHECK(allowed_result);
+  MF_CHECK(counts_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer logits_device = std::move(logits_result).value();
+  DeviceBuffer allowed_device = std::move(allowed_result).value();
+  DeviceBuffer counts_device = std::move(counts_result).value();
+  DeviceBuffer output_device = std::move(output_result).value();
+  MF_CHECK(logits_device
+               .copy_from_host_async(
+                   logits.data(), sizeof(logits), 0, stream.handle())
+               .ok());
+  MF_CHECK(allowed_device
+               .copy_from_host_async(
+                   allowed.data(), sizeof(allowed), 0, stream.handle())
+               .ok());
+  MF_CHECK(counts_device
+               .copy_from_host_async(
+                   counts.data(), sizeof(counts), 0, stream.handle())
+               .ok());
+  MF_CHECK(marketforge::cuda::restricted_greedy_select_f16(
+               logits_device, allowed_device, counts_device, output_device,
+               rows, vocabulary_size, maximum_allowed, stream.handle())
+               .ok());
+  MF_CHECK(output_device
+               .copy_to_host_async(
+                   observed.data(), sizeof(observed), 0, stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  MF_CHECK_EQ(observed[0],
+              marketforge::cuda::restricted_greedy_invalid_token_id);
+
+  counts[0] = static_cast<std::uint32_t>(maximum_allowed + 1U);
+  MF_CHECK(counts_device
+               .copy_from_host_async(
+                   counts.data(), sizeof(counts), 0, stream.handle())
+               .ok());
+  MF_CHECK(marketforge::cuda::restricted_greedy_select_f16(
+               logits_device, allowed_device, counts_device, output_device,
+               rows, vocabulary_size, maximum_allowed, stream.handle())
+               .ok());
+  MF_CHECK(output_device
+               .copy_to_host_async(
+                   observed.data(), sizeof(observed), 0, stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  MF_CHECK_EQ(observed[0],
+              marketforge::cuda::restricted_greedy_invalid_token_id);
+
+  allowed[1] = static_cast<std::uint32_t>(vocabulary_size);
+  counts[0] = 2;
+  MF_CHECK(allowed_device
+               .copy_from_host_async(
+                   allowed.data(), sizeof(allowed), 0, stream.handle())
+               .ok());
+  MF_CHECK(counts_device
+               .copy_from_host_async(
+                   counts.data(), sizeof(counts), 0, stream.handle())
+               .ok());
+  MF_CHECK(marketforge::cuda::restricted_greedy_select_f16(
+               logits_device, allowed_device, counts_device, output_device,
+               rows, vocabulary_size, maximum_allowed, stream.handle())
+               .ok());
+  MF_CHECK(output_device
+               .copy_to_host_async(
+                   observed.data(), sizeof(observed), 0, stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  MF_CHECK_EQ(observed[0],
+              marketforge::cuda::restricted_greedy_invalid_token_id);
+
+  MF_CHECK_EQ(marketforge::cuda::restricted_greedy_select_f16(
+                  logits_device, allowed_device, counts_device,
+                  output_device, rows, vocabulary_size, 0, stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::restricted_greedy_select_f16(
+                  logits_device, allowed_device, counts_device,
+                  output_device, rows, vocabulary_size,
+                  maximum_allowed - 1U, stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::restricted_greedy_select_f16(
+                  logits_device, allowed_device, counts_device,
+                  counts_device, rows, vocabulary_size, maximum_allowed,
+                  stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
 }
 
 } // namespace

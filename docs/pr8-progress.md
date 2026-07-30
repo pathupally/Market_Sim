@@ -49,7 +49,31 @@ Evidence:
 
 ## Milestone 3 — CUDA restricted-token selection
 
-Status: pending
+Status: locally complete; GPU validation pending combined gate
+
+Delivered:
+
+- explicit-stream FP16 restricted greedy selection over per-row candidate
+  tables;
+- variable allowed-token counts with fixed-width, batch-friendly storage;
+- FP32 comparisons, lowest-token-ID ties, NaN-loses behavior, and a defined
+  all-NaN fallback;
+- deterministic invalid-row sentinel for empty, oversized, or
+  out-of-vocabulary device candidate sets;
+- exact buffer-size, arithmetic, alias, stream, and launch validation;
+- differential coverage against nonterminal states from the generated
+  SmolLM2 market-action DFA;
+- an L4 CUDA-event benchmark driven by the complete DFA state catalog.
+
+Local evidence:
+
+- repository-root Python discovery: 103 passed, 1 expected skip;
+- Apple Clang Debug: build passed, 4/4 CTests passed;
+- Apple Clang ASan/UBSan: build passed, 4/4 CTests passed;
+- public CUDA header compilation passed without CUDA headers on macOS;
+- `git diff --check`: passed.
+
+Remote evidence: pending the one combined PR 8 L4 gate.
 
 ## Milestone 4 — vLLM serving ablations and combined L4 gate
 

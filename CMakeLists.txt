@@ -259,6 +259,7 @@ if(BUILD_TESTING)
       PRIVATE
         MarketForge::core
         MarketForge::cuda
+        MarketForge::grammar
     )
     target_include_directories(
       marketforge_cuda_unit_tests
@@ -349,6 +350,31 @@ if(BUILD_TESTING)
         CUDA_STANDARD_REQUIRED ON
     )
     marketforge_set_warnings(marketforge_cuda_linear_bench)
+
+    add_executable(
+      marketforge_cuda_restricted_greedy_bench
+      src/tools/cuda_restricted_greedy_bench.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_restricted_greedy_bench
+      PRIVATE
+        MarketForge::cuda
+        MarketForge::grammar
+        CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_restricted_greedy_bench
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_restricted_greedy_bench
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_restricted_greedy_bench)
 
     add_executable(
       marketforge_cuda_transformer_ops_bench
