@@ -11,7 +11,9 @@ import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
+import selectors
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -105,6 +107,89 @@ def _run(
             f"{' '.join(command)}\n{completed.stdout}"
         )
     return result
+
+
+def _terminate_process_group(process: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=10.0)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5.0)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("vLLM worker process group did not stop") from error
+
+
+def _run_vllm_worker(
+    command: list[str],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+    timeout_seconds: float = 330.0,
+) -> dict[str, object]:
+    if timeout_seconds <= 0:
+        raise ValueError("vLLM worker timeout must be positive")
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env={
+            **os.environ,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            **environment,
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    if process.stdout is None:
+        _terminate_process_group(process)
+        raise RuntimeError("vLLM worker stdout pipe is unavailable")
+
+    started = time.monotonic()
+    output: list[str] = []
+    payload: dict[str, object] | None = None
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    try:
+        while time.monotonic() - started < timeout_seconds:
+            events = selector.select(timeout=1.0)
+            if not events:
+                if process.poll() is not None:
+                    break
+                continue
+            line = process.stdout.readline()
+            if line == "":
+                if process.poll() is not None:
+                    break
+                continue
+            output.append(line)
+            if line.startswith(RESULT_PREFIX):
+                payload = _prefixed_json_line(line, RESULT_PREFIX)
+                break
+    finally:
+        selector.close()
+        try:
+            _terminate_process_group(process)
+        finally:
+            process.stdout.close()
+
+    if payload is None:
+        tail = "".join(output[-200:])
+        raise RuntimeError(
+            "vLLM worker produced no validated artifact within "
+            f"{timeout_seconds:.0f} seconds\n{tail}"
+        )
+    return payload
 
 
 def _extract_bundle(content: bytes, expected_sha256: str) -> Path:
@@ -780,12 +865,12 @@ def pr8_l4_gate(
         "--source-bundle-sha256",
         source_bundle_sha256,
     ]
-    eager_run = _run(
+    eager_ablation = _run_vllm_worker(
         [*worker_command, "--mode", "eager"],
         cwd=source,
         environment=worker_environment,
     )
-    graph_run = _run(
+    graph_ablation = _run_vllm_worker(
         [*worker_command, "--mode", "cuda_graph"],
         cwd=source,
         environment=worker_environment,
@@ -795,8 +880,8 @@ def pr8_l4_gate(
         "bundle_sha256": source_bundle_sha256,
     }
     ablations = _build_vllm_ablations(
-        _prefixed_json_line(str(eager_run["output"]), RESULT_PREFIX),
-        _prefixed_json_line(str(graph_run["output"]), RESULT_PREFIX),
+        eager_ablation,
+        graph_ablation,
         source=source_identity,
     )
     model_cache.commit()

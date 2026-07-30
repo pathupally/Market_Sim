@@ -128,3 +128,12 @@ Remote process:
 - the worker now calls the documented engine/engine-core `shutdown()` path
   with a timeout before returning its artifact, then forces collection so
   vLLM's background processes and GPU state cannot keep the child alive.
+- attempt `ap-WWDgPsp06R8eTzEga0UESA` confirmed that vLLM's process teardown
+  can still outlive that API-level shutdown and again reached the 900-second
+  gate ceiling after the native phases;
+- its complete $0.239364 ceiling remains counted conservatively;
+- workers now flush the fully validated artifact before teardown; the parent
+  reads it from a dedicated process-group pipe, then sends TERM/KILL to the
+  entire group before starting the next execution mode;
+- each worker also has a 330-second artifact deadline inside the 900-second
+  combined gate, preventing an opaque child from consuming the whole run.

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import re
 import threading
-from typing import Sequence
+from typing import Callable, Sequence
 
 from tools.inference.contract import (
     HardwareIdentity,
@@ -101,6 +101,7 @@ def _run_mode(
     mode: str,
     model_path: str,
     source: SourceIdentity,
+    emit: Callable[[dict[str, object]], None] | None = None,
 ) -> dict[str, object]:
     import torch
     from pynvml import (
@@ -208,6 +209,37 @@ def _run_mode(
                 requests=prefix_requests,
                 **run_arguments,
             ).to_payload()
+
+        if memory_errors or peak_gpu_memory_bytes[0] <= 0:
+            raise RuntimeError("device-wide NVML peak sampling failed")
+        if _generated(single) != [list(BASE_EXPECTED)]:
+            raise RuntimeError(
+                "single-request tokens do not match the oracle"
+            )
+        if _generated(batch) != [list(BASE_EXPECTED)] * BATCH_SIZE:
+            raise RuntimeError("batched tokens do not match the oracle")
+        if mode == "cuda_graph" and _generated(
+            runs["prefix_cold"]
+        ) != _generated(runs["prefix_warm"]):
+            raise RuntimeError("warm prefix-cache tokens changed")
+        for payload in runs.values():
+            validate_run_payload(payload)
+
+        result = {
+            "schema_version": 1,
+            "result": "pass",
+            "mode": mode,
+            "settings": {
+                "batch_size": BATCH_SIZE,
+                "prefix_batch_size": PREFIX_BATCH_SIZE,
+                "prefix_tokens": PREFIX_TOKENS,
+                "prefix_caching": True,
+            },
+            "runs": runs,
+        }
+        if emit is not None:
+            emit(result)
+        return result
     finally:
         try:
             if engine is not None:
@@ -218,32 +250,6 @@ def _run_mode(
             memory_stop.set()
             memory_thread.join(timeout=1.0)
             nvmlShutdown()
-
-    if memory_errors or peak_gpu_memory_bytes[0] <= 0:
-        raise RuntimeError("device-wide NVML peak sampling failed")
-    if _generated(single) != [list(BASE_EXPECTED)]:
-        raise RuntimeError("single-request tokens do not match the oracle")
-    if _generated(batch) != [list(BASE_EXPECTED)] * BATCH_SIZE:
-        raise RuntimeError("batched tokens do not match the oracle")
-    if mode == "cuda_graph" and _generated(
-        runs["prefix_cold"]
-    ) != _generated(runs["prefix_warm"]):
-        raise RuntimeError("warm prefix-cache tokens changed")
-    for payload in runs.values():
-        validate_run_payload(payload)
-
-    return {
-        "schema_version": 1,
-        "result": "pass",
-        "mode": mode,
-        "settings": {
-            "batch_size": BATCH_SIZE,
-            "prefix_batch_size": PREFIX_BATCH_SIZE,
-            "prefix_tokens": PREFIX_TOKENS,
-            "prefix_caching": True,
-        },
-        "runs": runs,
-    }
 
 
 def _parse_arguments(
@@ -267,22 +273,26 @@ def main(arguments: Sequence[str] | None = None) -> int:
         is None
     ):
         raise ValueError("source identity is malformed")
-    result = _run_mode(
+    def emit(result: dict[str, object]) -> None:
+        print(
+            RESULT_PREFIX
+            + json.dumps(
+                result,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
+    _run_mode(
         mode=values.mode,
         model_path=values.model_path,
         source=SourceIdentity(
             commit=values.source_commit,
             bundle_sha256=values.source_bundle_sha256,
         ),
-    )
-    print(
-        RESULT_PREFIX
-        + json.dumps(
-            result,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        emit=emit,
     )
     return 0
 

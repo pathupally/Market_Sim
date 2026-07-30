@@ -1,6 +1,8 @@
 from decimal import Decimal
 from pathlib import Path
+import sys
 import tempfile
+import time
 import unittest
 
 from tools.modal import vllm_modal_app
@@ -8,9 +10,11 @@ from tools.modal.vllm_modal_app import (
     LOCK,
     MAXIMUM_COST_USD,
     MODEL,
+    RESULT_PREFIX,
     VLLM_VERSION,
     _build_vllm_ablations,
     _prefixed_json_line,
+    _run_vllm_worker,
     _strict_json_line,
     _validate_benchmark,
     _validate_native_inference,
@@ -212,6 +216,35 @@ class VllmModalAppTest(unittest.TestCase):
                 (RuntimeError, ValueError)
             ):
                 _prefixed_json_line(output, prefix)
+
+    def test_worker_artifact_preempts_stalled_process_teardown(self) -> None:
+        started = time.monotonic()
+        payload = _run_vllm_worker(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import time;"
+                    f"print('{RESULT_PREFIX}' + "
+                    "'{\"schema_version\":1}', flush=True);"
+                    "time.sleep(30)"
+                ),
+            ],
+            cwd=Path.cwd(),
+            environment={},
+            timeout_seconds=2.0,
+        )
+        self.assertEqual(payload, {"schema_version": 1})
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_worker_without_an_artifact_fails_closed(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _run_vllm_worker(
+                [sys.executable, "-c", "print('no artifact')"],
+                cwd=Path.cwd(),
+                environment={},
+                timeout_seconds=2.0,
+            )
 
     def test_transformer_benchmark_schema_is_strict(self) -> None:
         benchmark = {
