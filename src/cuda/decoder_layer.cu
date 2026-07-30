@@ -32,7 +32,8 @@ Status smollm2_decoder_layer_f16(
       spec.query_heads * spec.head_dim != spec.hidden_size ||
       !std::isfinite(spec.rms_norm_epsilon) ||
       spec.rms_norm_epsilon <= 0.0F || !std::isfinite(spec.rope_theta) ||
-      spec.rope_theta <= 0.0F || !cublas.valid() || !stream.valid()) {
+      spec.rope_theta <= 0.0F || !cublas.handle().valid() ||
+      !stream.valid()) {
     return Status::failure(ErrorCode::invalid_argument);
   }
   if (batch > std::numeric_limits<std::uint64_t>::max() / tokens) {
