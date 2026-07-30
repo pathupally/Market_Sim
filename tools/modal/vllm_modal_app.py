@@ -239,6 +239,60 @@ def _validate_benchmark(
                 raise RuntimeError("native benchmark timing is malformed")
 
 
+def _validate_native_inference(value: object) -> None:
+    if type(value) is not dict or set(value) != {
+        "schema_version",
+        "result",
+        "backend",
+        "model",
+        "gpu",
+        "prompt_token_ids",
+        "generated_token_ids",
+        "model_load_seconds",
+        "inference_seconds",
+        "context_length",
+        "memory",
+    }:
+        raise RuntimeError("native inference schema mismatch")
+    gpu = value["gpu"]
+    memory = value["memory"]
+    if (
+        value["schema_version"] != 1
+        or value["result"] != "pass"
+        or value["backend"] != "native_cuda_f16"
+        or value["model"] != "SmolLM2-135M"
+        or value["prompt_token_ids"] != [0, 1, 2, 3]
+        or value["generated_token_ids"] != [198, 198, 504]
+        or value["context_length"] != 6
+        or type(gpu) is not dict
+        or gpu.get("compute_capability") != "8.9"
+        or "L4" not in str(gpu.get("name"))
+        or type(memory) is not dict
+        or set(memory) != {
+            "weight_bytes",
+            "kv_bytes",
+            "execution_bytes",
+            "total_device_bytes",
+        }
+        or memory["total_device_bytes"]
+        != memory["weight_bytes"]
+        + memory["kv_bytes"]
+        + memory["execution_bytes"]
+    ):
+        raise RuntimeError("native inference evidence mismatch")
+    for field in ("model_load_seconds", "inference_seconds"):
+        measurement = value[field]
+        if (
+            type(measurement) is not float
+            or not math.isfinite(measurement)
+            or measurement <= 0.0
+        ):
+            raise RuntimeError("native inference timing is malformed")
+    for measurement in memory.values():
+        if type(measurement) is not int or measurement <= 0:
+            raise RuntimeError("native inference memory is malformed")
+
+
 vllm_image = (
     modal.Image.from_registry(
         LOCK["base_image"]["reference"],
@@ -399,6 +453,17 @@ def pr7_l4_gate(
     )
     checkpoint = snapshot / "model.safetensors"
     verify_checkpoint(checkpoint)
+    native_inference_run = _run(
+        [
+            str(REMOTE_BUILD / "marketforge_cuda_smollm2_conformance"),
+            str(checkpoint),
+        ],
+        environment=environment,
+    )
+    native_inference = _strict_json_line(
+        str(native_inference_run["output"])
+    )
+    _validate_native_inference(native_inference)
 
     config = VllmConfig(
         max_output_tokens=3,
@@ -479,6 +544,7 @@ def pr7_l4_gate(
             "rmsnorm_benchmark": rmsnorm_benchmark,
             "linear_benchmark": linear_benchmark,
             "transformer_ops_benchmark": transformer_ops_benchmark,
+            "smollm2_inference": native_inference,
         },
         "inference": payload,
     }

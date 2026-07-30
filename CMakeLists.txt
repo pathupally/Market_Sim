@@ -94,6 +94,7 @@ if(MARKETFORGE_ENABLE_CUDA)
     src/cuda/lifecycle_probe.cu
     src/cuda/rms_norm.cu
     src/cuda/rope.cu
+    src/cuda/smollm2.cu
     src/cuda/swiglu.cu
   )
   add_library(MarketForge::cuda ALIAS marketforge_cuda)
@@ -351,6 +352,31 @@ if(BUILD_TESTING)
         CUDA_STANDARD_REQUIRED ON
     )
     marketforge_set_warnings(marketforge_cuda_transformer_ops_bench)
+
+    add_executable(
+      marketforge_cuda_smollm2_conformance
+      src/tools/cuda_smollm2_conformance.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_smollm2_conformance
+      PRIVATE
+        MarketForge::core
+        MarketForge::cuda
+        CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_smollm2_conformance
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_smollm2_conformance
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(marketforge_cuda_smollm2_conformance)
 
     add_test(NAME marketforge.cuda.unit COMMAND marketforge_cuda_unit_tests)
     add_test(

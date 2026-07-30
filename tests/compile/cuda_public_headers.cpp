@@ -13,6 +13,7 @@
 #include "marketforge/cuda/linear.hpp"
 #include "marketforge/cuda/rms_norm.hpp"
 #include "marketforge/cuda/rope.hpp"
+#include "marketforge/cuda/smollm2.hpp"
 #include "marketforge/cuda/swiglu.hpp"
 
 static_assert(!std::is_copy_constructible_v<marketforge::cuda::CublasHandle>);

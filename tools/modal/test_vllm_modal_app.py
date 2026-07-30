@@ -11,6 +11,7 @@ from tools.modal.vllm_modal_app import (
     VLLM_VERSION,
     _strict_json_line,
     _validate_benchmark,
+    _validate_native_inference,
     verify_checkpoint,
 )
 
@@ -107,6 +108,33 @@ class VllmModalAppTest(unittest.TestCase):
                 operator="transformer_elementwise_f16",
                 measurement_count=2,
             )
+
+    def test_native_inference_schema_is_strict(self) -> None:
+        evidence = {
+            "schema_version": 1,
+            "result": "pass",
+            "backend": "native_cuda_f16",
+            "model": "SmolLM2-135M",
+            "gpu": {
+                "name": "NVIDIA L4",
+                "compute_capability": "8.9",
+            },
+            "prompt_token_ids": [0, 1, 2, 3],
+            "generated_token_ids": [198, 198, 504],
+            "model_load_seconds": 1.0,
+            "inference_seconds": 1.0,
+            "context_length": 6,
+            "memory": {
+                "weight_bytes": 10,
+                "kv_bytes": 20,
+                "execution_bytes": 30,
+                "total_device_bytes": 60,
+            },
+        }
+        _validate_native_inference(evidence)
+        evidence["generated_token_ids"] = [198, 198, 198]
+        with self.assertRaises(RuntimeError):
+            _validate_native_inference(evidence)
 
 
 if __name__ == "__main__":
