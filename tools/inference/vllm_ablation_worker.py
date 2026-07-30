@@ -28,11 +28,6 @@ BATCH_SIZE = 16
 PREFIX_BATCH_SIZE = 8
 PREFIX_TOKENS = 128
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-LOCK = json.loads(
-    (PROJECT_ROOT / "tools/modal/vllm-lock.json").read_text(encoding="utf-8")
-)
-EXECUTION = LOCK["execution"]
-MODEL_LOCK = LOCK["model"]
 BASE_PROMPT = (0, 1, 2, 3)
 BASE_EXPECTED = (198, 198, 504)
 
@@ -96,18 +91,25 @@ def _run_mode(
 
     if mode not in {"eager", "cuda_graph"}:
         raise ValueError("unknown vLLM execution mode")
+    lock = json.loads(
+        (PROJECT_ROOT / "tools/modal/vllm-lock.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    execution = lock["execution"]
+    model_lock = lock["model"]
     model = ModelIdentity(
-        model_id=MODEL_LOCK["id"],
-        repository=MODEL_LOCK["repository"],
-        revision=MODEL_LOCK["revision"],
-        checkpoint_sha256=MODEL_LOCK["checkpoint_sha256"],
-        vocabulary_size=int(MODEL_LOCK["vocabulary_size"]),
+        model_id=model_lock["id"],
+        repository=model_lock["repository"],
+        revision=model_lock["revision"],
+        checkpoint_sha256=model_lock["checkpoint_sha256"],
+        vocabulary_size=int(model_lock["vocabulary_size"]),
     )
     config = VllmConfig(
         max_output_tokens=3,
-        max_model_len=int(EXECUTION["max_model_len"]),
-        max_num_seqs=int(EXECUTION["max_num_seqs"]),
-        gpu_memory_utilization=float(EXECUTION["gpu_memory_utilization"]),
+        max_model_len=int(execution["max_model_len"]),
+        max_num_seqs=int(execution["max_num_seqs"]),
+        gpu_memory_utilization=float(execution["gpu_memory_utilization"]),
         enforce_eager=mode == "eager",
         enable_prefix_caching=True,
     )

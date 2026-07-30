@@ -103,3 +103,13 @@ Local evidence:
   network access.
 
 Remote evidence: pending.
+
+Remote process:
+
+- attempt `ap-op8zaNZ2egZlAJij9VEWH5` reached an L4 container but failed during
+  function import because the worker eagerly read `vllm-lock.json` from
+  Modal's Python-only package mount;
+- no CUDA build, benchmark, model load, or inference ran;
+- the app was stopped, and the complete $0.239364 ceiling remains counted
+  conservatively in the project budget tracker;
+- lock loading now occurs only inside the extracted source-bound worker.
