@@ -1,8 +1,10 @@
 # PR 8 contract: serving optimization core
 
-Status: in progress
+Status: complete
 Date: 2026-07-30
 Base commit: `fbe16f4`
+Accepted implementation commit:
+`8756527e532c21cda1e9513421bf73cae163465a`
 
 ## Outcome
 
@@ -71,3 +73,11 @@ for the one L4 run and do not replace exact token parity.
 Every combined Modal attempt is limited to one L4, 15 minutes, and $0.239364.
 The project stops submitting work before the user account would fall below the
 approved $6 reserve.
+
+## Acceptance
+
+The combined gate passed on one NVIDIA L4 with CUDA 12.9.41. It built all 76
+steps, passed 6/6 CTests, reproduced `[198, 198, 504]` through both native CUDA
+and vLLM, measured the complete grammar-restricted CUDA kernel, and accepted
+the eager/graph and cold/warm-prefix ablation matrix. See
+`docs/pr8-modal-result.json` and `docs/pr8-progress.md`.

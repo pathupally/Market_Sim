@@ -73,11 +73,20 @@ Local evidence:
 - public CUDA header compilation passed without CUDA headers on macOS;
 - `git diff --check`: passed.
 
-Remote evidence: pending the one combined PR 8 L4 gate.
+Remote evidence:
+
+- accepted source-bound L4 commit:
+  `8756527e532c21cda1e9513421bf73cae163465a`;
+- source bundle SHA-256:
+  `7af82a300b9d12506d28b2a1adaa1c8499e4f1792ac5aab7fb6904c1fe916d1a`;
+- CUDA 12.9.41/GNU 11.4.0 build: 76/76 steps passed;
+- CTest: 6/6 passed, including the action-DFA differential test;
+- the complete 3,230-state/3,229-arc grammar ran at 3.703 microseconds for
+  256 rows and 501 total allowed candidates on one NVIDIA L4.
 
 ## Milestone 4 — vLLM serving ablations and combined L4 gate
 
-Status: harness locally complete; combined gate pending
+Status: remotely validated; PR 8 implementation complete
 
 Delivered:
 
@@ -102,7 +111,17 @@ Local evidence:
 - no local test imports vLLM, initializes CUDA, downloads a model, or performs
   network access.
 
-Remote evidence: pending.
+Remote evidence:
+
+- accepted application: `ap-mpGjoZOhPdVnWOXQnKXpfW`;
+- exact native and vLLM standard-request output:
+  `[198, 198, 504]`;
+- eager single/batch throughput: 6.153/142.646 requests per second;
+- graph single/batch throughput: 23.341/344.428 requests per second;
+- graph speedup: 3.793x single and 2.415x batch;
+- eight-request, 128-token common-prefix replay preserved every output and
+  measured a 2.080x warm-cache speedup;
+- the complete accepted summary is recorded in `docs/pr8-modal-result.json`.
 
 Remote process:
 
@@ -137,3 +156,42 @@ Remote process:
   entire group before starting the next execution mode;
 - each worker also has a 330-second artifact deadline inside the 900-second
   combined gate, preventing an opaque child from consuming the whole run.
+- attempt `ap-mpGjoZOhPdVnWOXQnKXpfW` accepted the artifact-first worker
+  lifecycle and completed the full combined gate;
+- accepted commit:
+  `8756527e532c21cda1e9513421bf73cae163465a`;
+- accepted source bundle SHA-256:
+  `7af82a300b9d12506d28b2a1adaa1c8499e4f1792ac5aab7fb6904c1fe916d1a`;
+- CUDA 12.9.41/GNU 11.4.0 build: 76/76 steps passed;
+- CTest: 6/6 passed;
+- native FP16 SmolLM2 generated `[198, 198, 504]` in 288.467
+  milliseconds and owned 269,372,588 device bytes;
+- vLLM eager batch-16 generated the same result for all requests at 142.646
+  requests per second;
+- vLLM graph batch-16 generated the same result for all requests at 344.428
+  requests per second;
+- graph execution measured 3.793x single-request and 2.415x batch speedups
+  over eager execution;
+- automatic prefix caching preserved exact cold/warm outputs and measured a
+  2.080x warm replay speedup for eight 129-token prompts sharing 128 tokens;
+- every attempt was bounded to $0.239364; conservative project accounting is
+  now $4.373832, below the $24 software cap and the required $6 reserve.
+
+## Accepted gate
+
+The accepted source-bound Modal invocation:
+
+1. configured and compiled the immutable clean Git archive for compute 8.9;
+2. passed all native CPU/CUDA tests;
+3. recorded cuBLAS, RMSNorm, RoPE, SwiGLU, and DFA-restricted CUDA timings;
+4. verified the locked 269 MB checkpoint;
+5. ran exact native FP16 SmolLM2 prefill/decode;
+6. ran isolated vLLM eager and CUDA-graph single/batch ablations;
+7. replayed an exact common-prefix batch through automatic prefix caching;
+8. validated source identity, schemas, timings, cardinalities, and token
+   equality before accepting the result.
+
+Result: **passed**.
+Maximum function compute cost: **$0.239364**.
+Maximum duration: **15 L4 minutes**.
+Maximum containers: **1**.

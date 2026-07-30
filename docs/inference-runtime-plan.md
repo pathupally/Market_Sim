@@ -3,11 +3,13 @@
 Status: canonical planning baseline
 Date: 2026-07-28
 
-Implementation is complete through PR 5. See `docs/pr1-report.md`,
-`docs/pr2-report.md`, `docs/pr3-report.md`, `docs/pr4-report.md`, and
-`docs/pr5-report.md` for local, real-checkpoint, numerical-parity,
-memory-stability, finite-grammar, and deterministic-market evidence.
-Scope of this cycle: architecture plus detailed specifications for PRs 1–3 only
+The collapsed v1 implementation is complete through PR 8. PRs 1–5 establish
+portable model, oracle, grammar, and deterministic-market foundations; PR 6
+establishes the bounded CUDA/Modal harness; PR 7 delivers exact native CUDA and
+vLLM inference; PR 8 delivers deterministic scheduling, transactional paged KV
+ownership, immutable shared prefixes, DFA-restricted CUDA selection, and
+serving ablations. See `docs/pr8-contract.md`, `docs/pr8-progress.md`, and
+`docs/pr8-modal-result.json` for the final release evidence.
 
 ## Executive decision
 

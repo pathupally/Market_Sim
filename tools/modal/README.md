@@ -107,17 +107,19 @@ authorized without explicit user approval. Raw profiler captures remain in
 remote temporary storage and are deleted after structured capability
 verification.
 
-## PR 7 vLLM conformance
+## PR 7 and PR 8 vLLM conformance
 
 The PR 7 baseline uses vLLM 0.25.1 and the locked 269 MB SmolLM2 checkpoint in
 a digest-qualified CUDA 12.9 image. It sends token IDs directly, disables
 tokenizer initialization and detokenization, generates exactly three greedy
 tokens, and requires `[198, 198, 504]` from the existing PR 4 oracle.
 
-The first run uses eager execution so CUDA Graphs cannot obscure basic model
-parity. Prefix caching and graph execution are separate PR 8 ablations. The
-checkpoint cache is a Modal Volume outside Git; every invocation verifies the
-file size and SHA-256 before model construction.
+PR 7 first uses eager execution so CUDA Graphs cannot obscure basic model
+parity. PR 8 then holds prefix caching enabled in both configurations while it
+compares eager and CUDA-graph single/batch execution, followed by an exact
+cold/warm common-prefix replay. The checkpoint cache is a Modal Volume outside
+Git; every invocation verifies the file size and SHA-256 before model
+construction.
 
 Run all local Python tests from the repository root so the `tools.modal`
 package cannot shadow the installed Modal SDK:
@@ -126,14 +128,15 @@ package cannot shadow the installed Modal SDK:
 .venv/bin/python -m unittest discover -s . -p 'test_*.py'
 ```
 
-After committing a clean candidate, one combined gate builds and tests the
-native CUDA library, records RMSNorm and cuBLAS fused-QKV benchmarks, and runs
-the vLLM token-parity check. Its one-container, 15-minute L4 ceiling is
-$0.239364:
+After committing a clean candidate, the PR 8 combined gate builds and tests the
+native CUDA library, records RMSNorm, cuBLAS, transformer-elementwise, and
+grammar-restricted selection benchmarks, runs exact native SmolLM2 inference,
+and executes the vLLM serving ablations. Its one-container, 15-minute L4
+ceiling is $0.239364:
 
 ```bash
 .venv/bin/modal run -m tools.modal.vllm_modal_app \
-  --month-to-date-usd 1.262100
+  --month-to-date-usd 4.373832
 ```
 
 Replace the example spend with the current Modal project spend. The local

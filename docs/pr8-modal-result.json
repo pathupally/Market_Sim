@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "source": {
+    "commit": "8756527e532c21cda1e9513421bf73cae163465a",
+    "bundle_sha256": "7af82a300b9d12506d28b2a1adaa1c8499e4f1792ac5aab7fb6904c1fe916d1a"
+  },
+  "modal": {
+    "application_id": "ap-mpGjoZOhPdVnWOXQnKXpfW",
+    "url": "https://modal.com/apps/adrianmathew75/main/ap-mpGjoZOhPdVnWOXQnKXpfW",
+    "gpu": "NVIDIA L4",
+    "compute_capability": "8.9",
+    "maximum_compute_cost_usd": "0.239364",
+    "submitted_month_to_date_usd": "4.134468",
+    "conservative_project_usage_after_attempt_usd": "4.373832",
+    "project_soft_cap_usd": "24",
+    "required_reserve_usd": "6"
+  },
+  "native_cuda": {
+    "compiler": "NVIDIA CUDA 12.9.41",
+    "host_compiler": "GNU 11.4.0",
+    "cmake_configure_seconds": 6.486853,
+    "build_steps": 76,
+    "build_seconds": 62.360413,
+    "ctest_passed": 6,
+    "ctest_failed": 0,
+    "restricted_greedy_f16": {
+      "grammar": "smollm2_market_action_v1",
+      "vocabulary_size": 49152,
+      "grammar_states": 3230,
+      "grammar_arcs": 3229,
+      "maximum_allowed_tokens": 11,
+      "measurements": [
+        {
+          "rows": 1,
+          "total_allowed_candidates": 3,
+          "average_microseconds": 3.308,
+          "sequences_per_second": 302294.533
+        },
+        {
+          "rows": 16,
+          "total_allowed_candidates": 18,
+          "average_microseconds": 3.409,
+          "sequences_per_second": 4693601.724
+        },
+        {
+          "rows": 256,
+          "total_allowed_candidates": 501,
+          "average_microseconds": 3.703,
+          "sequences_per_second": 69137166.995
+        }
+      ]
+    },
+    "smollm2_inference": {
+      "backend": "native_cuda_f16",
+      "model": "SmolLM2-135M",
+      "model_load_seconds": 0.653232,
+      "inference_seconds": 0.288467,
+      "prompt_token_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "generated_token_ids": [
+        198,
+        198,
+        504
+      ],
+      "memory": {
+        "weight_bytes": 269030016,
+        "kv_bytes": 184320,
+        "execution_bytes": 158252,
+        "total_device_bytes": 269372588
+      }
+    }
+  },
+  "vllm_ablations": {
+    "version": "0.25.1",
+    "prefix_caching_enabled_in_both_modes": true,
+    "eager": {
+      "model_load_seconds": 181.501711921,
+      "single": {
+        "batch_size": 1,
+        "inference_seconds": 0.16252624599997034,
+        "requests_per_second": 6.152852,
+        "output_tokens_per_second": 18.458557
+      },
+      "batch": {
+        "batch_size": 16,
+        "inference_seconds": 0.11216592499999933,
+        "requests_per_second": 142.645817,
+        "output_tokens_per_second": 427.937451
+      },
+      "peak_gpu_memory_bytes": 8943239168,
+      "all_standard_outputs": [
+        198,
+        198,
+        504
+      ]
+    },
+    "cuda_graph": {
+      "model_load_seconds": 92.65439166200002,
+      "single": {
+        "batch_size": 1,
+        "inference_seconds": 0.042843598999979804,
+        "requests_per_second": 23.34071,
+        "output_tokens_per_second": 70.022129
+      },
+      "batch": {
+        "batch_size": 16,
+        "inference_seconds": 0.04645383999996966,
+        "requests_per_second": 344.427931,
+        "output_tokens_per_second": 1033.283793
+      },
+      "prefix_replay": {
+        "batch_size": 8,
+        "shared_prefix_tokens": 128,
+        "cold_warm_exact_token_replay": true,
+        "warm_prefix_speedup": 2.079552630063098
+      },
+      "peak_gpu_memory_bytes": 9010348032,
+      "all_standard_outputs": [
+        198,
+        198,
+        504
+      ]
+    },
+    "comparisons": {
+      "graph_single_speedup": 3.793477900865587,
+      "graph_batch_speedup": 2.4145673425506393,
+      "eager_batch_request_throughput_gain": 23.18368912840099,
+      "graph_batch_request_throughput_gain": 14.756532161821811,
+      "warm_prefix_speedup": 2.079552630063098
+    }
+  }
+}

@@ -5,7 +5,7 @@ stateful, short-output agents. Its demonstration workload is a small
 prediction-market simulation; the primary engineering work is inference
 scheduling, KV-cache ownership, constrained decoding, and CUDA performance.
 
-The implementation is complete through PR 7:
+The implementation is complete through PR 8:
 portable tensor/model contracts,
 safe mapped SmolLM2 loading, a readable FP32 CPU decoder-layer oracle,
 pretokenized full-model greedy decode, an immutable tokenizer-derived action
@@ -15,13 +15,17 @@ margin-qualified greedy tokens across the PyTorch fixture, FP32 CPU oracle,
 native FP16 CUDA runtime, and vLLM. The native path includes explicit streams,
 cuBLAS projections, contiguous FP16 KV, and custom RMSNorm, RoPE, causal GQA
 attention, SwiGLU, residual, embedding, KV-write, and greedy kernels.
+The serving layer adds deterministic continuous batching, transactional paged
+KV ownership, immutable shared prefixes, DFA-restricted CUDA token selection,
+and source-bound vLLM eager/graph and prefix-cache ablations.
 
-PR 7 uses two GPU lanes: pinned vLLM for an immediate end-to-end serving
+PRs 7 and 8 use two GPU lanes: pinned vLLM for an end-to-end serving
 baseline and a separate native C++/CUDA implementation for kernel and memory
 systems work. Both consume token IDs and emit the strict backend-neutral
 inference artifact defined in `tools/inference/contract.py`. See
-[the PR 7 contract](docs/pr7-contract.md) and
-[live progress log](docs/pr7-progress.md).
+[the PR 7 contract](docs/pr7-contract.md),
+[the PR 8 contract](docs/pr8-contract.md), and the
+[accepted PR 8 evidence](docs/pr8-modal-result.json).
 
 ## Build on this Mac
 
