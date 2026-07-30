@@ -23,6 +23,8 @@
 #include "marketforge/cuda/device_buffer.hpp"
 #include "marketforge/cuda/linear.hpp"
 #include "marketforge/cuda/rms_norm.hpp"
+#include "marketforge/cuda/rope.hpp"
+#include "marketforge/cuda/swiglu.hpp"
 #include "test_support.hpp"
 
 namespace {
@@ -224,6 +226,168 @@ void run_linear_parity_case(const std::uint64_t rows,
   }
 }
 
+void run_rope_parity_case(
+    const std::uint64_t batch, const std::uint64_t tokens,
+    const std::uint64_t query_heads, const std::uint64_t key_value_heads,
+    const std::uint64_t head_dim,
+    const std::vector<std::uint32_t>& positions) {
+  const auto query_elements =
+      static_cast<std::size_t>(batch * tokens * query_heads * head_dim);
+  const auto key_elements = static_cast<std::size_t>(
+      batch * tokens * key_value_heads * head_dim);
+  std::vector<__half> query(query_elements);
+  std::vector<__half> key(key_elements);
+  std::vector<float> expected_query(query_elements);
+  std::vector<float> expected_key(key_elements);
+  for (std::size_t index = 0; index < query.size(); ++index) {
+    const auto value =
+        static_cast<float>(static_cast<std::int32_t>(index % 29) - 14) /
+        32.0F;
+    query[index] = __float2half_rn(value);
+    expected_query[index] = __half2float(query[index]);
+  }
+  for (std::size_t index = 0; index < key.size(); ++index) {
+    const auto value =
+        static_cast<float>(static_cast<std::int32_t>(index % 23) - 11) /
+        32.0F;
+    key[index] = __float2half_rn(value);
+    expected_key[index] = __half2float(key[index]);
+  }
+  const std::array<std::uint64_t, 4> query_extents{
+      batch, tokens, query_heads, head_dim};
+  const std::array<std::uint64_t, 4> key_extents{
+      batch, tokens, key_value_heads, head_dim};
+  const auto query_shape = marketforge::make_shape(query_extents);
+  const auto key_shape = marketforge::make_shape(key_extents);
+  MF_CHECK(query_shape);
+  MF_CHECK(key_shape);
+  MF_CHECK(marketforge::apply_rope_f32(
+               TensorView{
+                   expected_query.data(),
+                   query_shape.value(),
+                   marketforge::DType::f32,
+                   MemoryKind::host,
+               },
+               TensorView{
+                   expected_key.data(),
+                   key_shape.value(),
+                   marketforge::DType::f32,
+                   MemoryKind::host,
+               },
+               positions, marketforge::RopeSpec{10'000.0F, 8'192})
+               .ok());
+
+  auto stream_result = CudaStream::create();
+  auto query_result =
+      DeviceBuffer::allocate(query_elements * sizeof(__half));
+  auto key_result = DeviceBuffer::allocate(key_elements * sizeof(__half));
+  auto position_result =
+      DeviceBuffer::allocate(positions.size() * sizeof(std::uint32_t));
+  MF_CHECK(stream_result);
+  MF_CHECK(query_result);
+  MF_CHECK(key_result);
+  MF_CHECK(position_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer query_device = std::move(query_result).value();
+  DeviceBuffer key_device = std::move(key_result).value();
+  DeviceBuffer position_device = std::move(position_result).value();
+  MF_CHECK(query_device
+               .copy_from_host_async(query.data(),
+                                     query_elements * sizeof(__half), 0,
+                                     stream.handle())
+               .ok());
+  MF_CHECK(key_device
+               .copy_from_host_async(key.data(),
+                                     key_elements * sizeof(__half), 0,
+                                     stream.handle())
+               .ok());
+  MF_CHECK(position_device
+               .copy_from_host_async(
+                   positions.data(),
+                   positions.size() * sizeof(std::uint32_t), 0,
+                   stream.handle())
+               .ok());
+  MF_CHECK(marketforge::cuda::apply_rope_f16(
+               query_device, key_device, position_device, batch, tokens,
+               query_heads, key_value_heads, head_dim, 10'000.0F,
+               stream.handle())
+               .ok());
+  MF_CHECK(query_device
+               .copy_to_host_async(query.data(),
+                                   query_elements * sizeof(__half), 0,
+                                   stream.handle())
+               .ok());
+  MF_CHECK(key_device
+               .copy_to_host_async(key.data(), key_elements * sizeof(__half),
+                                   0, stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  for (std::size_t index = 0; index < query.size(); ++index) {
+    MF_CHECK_NEAR(__half2float(query[index]), expected_query[index], 0.002F);
+  }
+  for (std::size_t index = 0; index < key.size(); ++index) {
+    MF_CHECK_NEAR(__half2float(key[index]), expected_key[index], 0.002F);
+  }
+}
+
+void run_swiglu_parity_case(const std::uint64_t elements,
+                            const bool in_place) {
+  std::vector<__half> gate(static_cast<std::size_t>(elements));
+  std::vector<__half> up(static_cast<std::size_t>(elements));
+  std::vector<__half> observed(static_cast<std::size_t>(elements));
+  std::vector<float> expected(static_cast<std::size_t>(elements));
+  for (std::size_t index = 0; index < gate.size(); ++index) {
+    const auto gate_value =
+        static_cast<float>(static_cast<std::int32_t>(index % 31) - 15) /
+        8.0F;
+    const auto up_value =
+        static_cast<float>(static_cast<std::int32_t>(index % 19) - 9) /
+        16.0F;
+    gate[index] = __float2half_rn(gate_value);
+    up[index] = __float2half_rn(up_value);
+    const float rounded_gate = __half2float(gate[index]);
+    expected[index] =
+        rounded_gate / (1.0F + std::exp(-rounded_gate)) *
+        __half2float(up[index]);
+  }
+
+  auto stream_result = CudaStream::create();
+  auto gate_result = DeviceBuffer::allocate(elements * sizeof(__half));
+  auto up_result = DeviceBuffer::allocate(elements * sizeof(__half));
+  auto output_result =
+      DeviceBuffer::allocate(in_place ? 0 : elements * sizeof(__half));
+  MF_CHECK(stream_result);
+  MF_CHECK(gate_result);
+  MF_CHECK(up_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer gate_device = std::move(gate_result).value();
+  DeviceBuffer up_device = std::move(up_result).value();
+  DeviceBuffer output_device =
+      in_place ? DeviceBuffer{} : std::move(output_result).value();
+  MF_CHECK(gate_device
+               .copy_from_host_async(gate.data(), elements * sizeof(__half), 0,
+                                     stream.handle())
+               .ok());
+  MF_CHECK(up_device
+               .copy_from_host_async(up.data(), elements * sizeof(__half), 0,
+                                     stream.handle())
+               .ok());
+  DeviceBuffer& destination = in_place ? gate_device : output_device;
+  MF_CHECK(marketforge::cuda::swiglu_f16(
+               gate_device, up_device, destination, elements, stream.handle())
+               .ok());
+  MF_CHECK(destination
+               .copy_to_host_async(observed.data(),
+                                   elements * sizeof(__half), 0,
+                                   stream.handle())
+               .ok());
+  MF_CHECK(stream.synchronize().ok());
+  for (std::size_t index = 0; index < observed.size(); ++index) {
+    MF_CHECK_NEAR(__half2float(observed[index]), expected[index], 0.002F);
+  }
+}
+
 MF_TEST(cuda_error_classification_preserves_numeric_detail) {
   const auto runtime =
       marketforge::cuda::detail::runtime_status(cudaErrorInvalidValue);
@@ -417,6 +581,95 @@ MF_TEST(cuda_linear_f16_rejects_invalid_metadata_before_cublas) {
       marketforge::cuda::linear_f16(
           input, weight, output, std::numeric_limits<std::uint64_t>::max(), 2,
           2, handle, stream.handle())
+          .code,
+      ErrorCode::arithmetic_overflow);
+}
+
+MF_TEST(cuda_rope_f16_matches_llama_half_rotation_for_smollm2_gqa) {
+  run_rope_parity_case(1, 2, 1, 1, 4, {0, 1});
+  run_rope_parity_case(2, 3, 9, 3, 64, {0, 1, 2, 32, 511, 8'191});
+}
+
+MF_TEST(cuda_rope_f16_rejects_invalid_metadata_before_launch) {
+  auto stream_result = CudaStream::create();
+  auto query_result = DeviceBuffer::allocate(2 * 2 * sizeof(__half));
+  auto key_result = DeviceBuffer::allocate(2 * 2 * sizeof(__half));
+  auto position_result = DeviceBuffer::allocate(2 * sizeof(std::uint32_t));
+  MF_CHECK(stream_result);
+  MF_CHECK(query_result);
+  MF_CHECK(key_result);
+  MF_CHECK(position_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer query = std::move(query_result).value();
+  DeviceBuffer key = std::move(key_result).value();
+  DeviceBuffer positions = std::move(position_result).value();
+
+  MF_CHECK_EQ(marketforge::cuda::apply_rope_f16(
+                  query, key, positions, 1, 2, 1, 1, 2, 10'000.0F, {})
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::apply_rope_f16(
+                  query, key, positions, 1, 2, 1, 1, 3, 10'000.0F,
+                  stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::apply_rope_f16(
+                  query, key, positions, 1, 1, 1, 1, 2, 10'000.0F,
+                  stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::apply_rope_f16(
+                  query, query, positions, 1, 2, 1, 1, 2, 10'000.0F,
+                  stream.handle())
+                  .code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::apply_rope_f16(
+                  query, key, positions,
+                  std::numeric_limits<std::uint64_t>::max(), 2, 1, 1, 2,
+                  10'000.0F, stream.handle())
+                  .code,
+              ErrorCode::arithmetic_overflow);
+}
+
+MF_TEST(cuda_swiglu_f16_matches_reference_in_place_and_out_of_place) {
+  run_swiglu_parity_case(1, false);
+  run_swiglu_parity_case(3 * 1'536, false);
+  run_swiglu_parity_case(3 * 1'536, true);
+}
+
+MF_TEST(cuda_swiglu_f16_rejects_invalid_metadata_before_launch) {
+  auto stream_result = CudaStream::create();
+  auto gate_result = DeviceBuffer::allocate(4 * sizeof(__half));
+  auto up_result = DeviceBuffer::allocate(4 * sizeof(__half));
+  auto output_result = DeviceBuffer::allocate(4 * sizeof(__half));
+  MF_CHECK(stream_result);
+  MF_CHECK(gate_result);
+  MF_CHECK(up_result);
+  MF_CHECK(output_result);
+  CudaStream stream = std::move(stream_result).value();
+  DeviceBuffer gate = std::move(gate_result).value();
+  DeviceBuffer up = std::move(up_result).value();
+  DeviceBuffer output = std::move(output_result).value();
+
+  MF_CHECK_EQ(
+      marketforge::cuda::swiglu_f16(gate, up, output, 0, stream.handle()).code,
+      ErrorCode::invalid_argument);
+  MF_CHECK_EQ(marketforge::cuda::swiglu_f16(gate, up, output, 4, {}).code,
+              ErrorCode::invalid_argument);
+  MF_CHECK_EQ(
+      marketforge::cuda::swiglu_f16(gate, up, output, 3, stream.handle()).code,
+      ErrorCode::invalid_argument);
+  MF_CHECK_EQ(
+      marketforge::cuda::swiglu_f16(gate, gate, output, 4, stream.handle())
+          .code,
+      ErrorCode::invalid_argument);
+  MF_CHECK_EQ(
+      marketforge::cuda::swiglu_f16(gate, up, up, 4, stream.handle()).code,
+      ErrorCode::invalid_argument);
+  MF_CHECK_EQ(
+      marketforge::cuda::swiglu_f16(
+          gate, up, output, std::numeric_limits<std::uint64_t>::max(),
+          stream.handle())
           .code,
       ErrorCode::arithmetic_overflow);
 }

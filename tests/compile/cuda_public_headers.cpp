@@ -6,6 +6,8 @@
 #include "marketforge/cuda/lifecycle_probe.hpp"
 #include "marketforge/cuda/linear.hpp"
 #include "marketforge/cuda/rms_norm.hpp"
+#include "marketforge/cuda/rope.hpp"
+#include "marketforge/cuda/swiglu.hpp"
 
 static_assert(!std::is_copy_constructible_v<marketforge::cuda::CublasHandle>);
 static_assert(!std::is_copy_assignable_v<marketforge::cuda::CublasHandle>);

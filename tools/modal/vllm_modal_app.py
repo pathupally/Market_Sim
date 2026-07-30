@@ -200,7 +200,7 @@ def _validate_benchmark(
             "logical_gib_per_second",
         }
         rate_field = "logical_gib_per_second"
-    else:
+    elif operator == "linear_f16_fp32_accumulate":
         measurement_fields = {
             "rows",
             "input_features",
@@ -210,9 +210,25 @@ def _validate_benchmark(
             "tera_flops",
         }
         rate_field = "tera_flops"
+    elif operator == "transformer_elementwise_f16":
+        measurement_fields = {
+            "operation",
+            "rows",
+            "elements",
+            "iterations",
+            "average_microseconds",
+            "logical_gib_per_second",
+        }
+        rate_field = "logical_gib_per_second"
+    else:
+        raise RuntimeError("unknown native benchmark operator")
     for measurement in measurements:
         if type(measurement) is not dict or set(measurement) != measurement_fields:
             raise RuntimeError("native benchmark measurement is malformed")
+        if operator == "transformer_elementwise_f16" and measurement[
+            "operation"
+        ] not in {"rope_f16", "swiglu_f16"}:
+            raise RuntimeError("native benchmark operation is malformed")
         for field in ("average_microseconds", rate_field):
             value = measurement.get(field)
             if (
@@ -341,8 +357,15 @@ def pr7_l4_gate(
         [str(REMOTE_BUILD / "marketforge_cuda_linear_bench")],
         environment=environment,
     )
+    transformer_ops_run = _run(
+        [str(REMOTE_BUILD / "marketforge_cuda_transformer_ops_bench")],
+        environment=environment,
+    )
     rmsnorm_benchmark = _strict_json_line(str(rmsnorm_run["output"]))
     linear_benchmark = _strict_json_line(str(linear_run["output"]))
+    transformer_ops_benchmark = _strict_json_line(
+        str(transformer_ops_run["output"])
+    )
     _validate_benchmark(
         rmsnorm_benchmark,
         operator="rms_norm_f32",
@@ -352,6 +375,11 @@ def pr7_l4_gate(
         linear_benchmark,
         operator="linear_f16_fp32_accumulate",
         measurement_count=3,
+    )
+    _validate_benchmark(
+        transformer_ops_benchmark,
+        operator="transformer_elementwise_f16",
+        measurement_count=6,
     )
 
     model = ModelIdentity(
@@ -450,6 +478,7 @@ def pr7_l4_gate(
             "commands": commands,
             "rmsnorm_benchmark": rmsnorm_benchmark,
             "linear_benchmark": linear_benchmark,
+            "transformer_ops_benchmark": transformer_ops_benchmark,
         },
         "inference": payload,
     }

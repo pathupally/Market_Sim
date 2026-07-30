@@ -10,6 +10,7 @@ from tools.modal.vllm_modal_app import (
     MODEL,
     VLLM_VERSION,
     _strict_json_line,
+    _validate_benchmark,
     verify_checkpoint,
 )
 
@@ -71,6 +72,41 @@ class VllmModalAppTest(unittest.TestCase):
                 (RuntimeError, ValueError)
             ):
                 _strict_json_line(output)
+
+    def test_transformer_benchmark_schema_is_strict(self) -> None:
+        benchmark = {
+            "schema_version": 1,
+            "result": "pass",
+            "operator": "transformer_elementwise_f16",
+            "model_shape": "SmolLM2",
+            "gpu": {
+                "name": "NVIDIA L4",
+                "compute_capability": "8.9",
+            },
+            "measurements": [
+                {
+                    "operation": operation,
+                    "rows": 1,
+                    "elements": 768,
+                    "iterations": 20,
+                    "average_microseconds": 1.0,
+                    "logical_gib_per_second": 1.0,
+                }
+                for operation in ("rope_f16", "swiglu_f16")
+            ],
+        }
+        _validate_benchmark(
+            benchmark,
+            operator="transformer_elementwise_f16",
+            measurement_count=2,
+        )
+        benchmark["measurements"][0]["operation"] = "unknown"
+        with self.assertRaises(RuntimeError):
+            _validate_benchmark(
+                benchmark,
+                operator="transformer_elementwise_f16",
+                measurement_count=2,
+            )
 
 
 if __name__ == "__main__":
