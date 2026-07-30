@@ -21,4 +21,10 @@ namespace marketforge::cuda {
                                   std::uint64_t hidden_size, float epsilon,
                                   StreamHandle stream) noexcept;
 
+[[nodiscard]] Status rms_norm_f16(const DeviceBuffer& input,
+                                  const DeviceBuffer& weight,
+                                  DeviceBuffer& output, std::uint64_t rows,
+                                  std::uint64_t hidden_size, float epsilon,
+                                  StreamHandle stream) noexcept;
+
 } // namespace marketforge::cuda

@@ -1,8 +1,12 @@
 #include <type_traits>
 
+#include "marketforge/cuda/attention.hpp"
 #include "marketforge/cuda/cublas_handle.hpp"
 #include "marketforge/cuda/cuda_stream.hpp"
+#include "marketforge/cuda/decoder_layer.hpp"
 #include "marketforge/cuda/device_buffer.hpp"
+#include "marketforge/cuda/elementwise.hpp"
+#include "marketforge/cuda/embedding.hpp"
 #include "marketforge/cuda/greedy.hpp"
 #include "marketforge/cuda/kv_cache.hpp"
 #include "marketforge/cuda/lifecycle_probe.hpp"

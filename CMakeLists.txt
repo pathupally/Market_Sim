@@ -81,9 +81,13 @@ if(MARKETFORGE_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
 
   add_library(marketforge_cuda
+    src/cuda/attention.cu
     src/cuda/cublas_handle.cu
     src/cuda/cuda_stream.cu
+    src/cuda/decoder_layer.cu
     src/cuda/device_buffer.cu
+    src/cuda/elementwise.cu
+    src/cuda/embedding.cu
     src/cuda/greedy.cu
     src/cuda/kv_cache.cu
     src/cuda/linear.cu
@@ -225,6 +229,7 @@ if(BUILD_TESTING)
     add_executable(
       marketforge_cuda_unit_tests
       tests/cuda/cuda_tests.cu
+      tests/cuda/decoder_layer_tests.cu
       tests/unit/test_main.cpp
     )
     target_link_libraries(
