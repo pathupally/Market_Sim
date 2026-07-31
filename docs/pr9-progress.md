@@ -59,3 +59,12 @@ Remote process:
   project tracker to $4.852560;
 - the three-row invalid-device test now uses fixed C arrays, removing the
   problematic template without weakening the tested device-buffer contract.
+- attempt `ap-Lcc6goooJKEXxXdP7EN5Yr` passed the previous NVCC failure point
+  and reached the cached-checkpoint stage, then Modal canceled the input when
+  the initiating client disconnected; retained logs contain no product-test
+  failure;
+- its complete $0.239364 ceiling remains counted conservatively, bringing the
+  project tracker to $5.091924;
+- subsequent launches use detached mode and emit a strict source-bound result
+  line inside the remote function, so client lifetime cannot cancel compute or
+  discard accepted evidence.

@@ -135,12 +135,15 @@ and executes the vLLM serving ablations. Its one-container, 15-minute L4
 ceiling is $0.239364:
 
 ```bash
-.venv/bin/modal run -m tools.modal.vllm_modal_app \
+.venv/bin/modal run --detach -m tools.modal.vllm_modal_app \
   --month-to-date-usd 4.373832
 ```
 
 Replace the example spend with the current Modal project spend. The local
 entrypoint rejects a dirty tree, creates an immutable Git archive, checks the
 $24 project soft cap, and binds the returned inference artifact to the commit
-and archive SHA-256. Image build and model-transfer charges, if any, are
-separate from the compute ceiling.
+and archive SHA-256. Detached mode keeps the input alive if the local client
+disconnects; the remote function also writes its single-line
+`MARKETFORGE_GATE_RESULT:` artifact to retained app logs before returning.
+Image build and model-transfer charges, if any, are separate from the compute
+ceiling.

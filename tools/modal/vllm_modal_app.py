@@ -50,6 +50,7 @@ EXECUTION = LOCK["execution"]
 MODEL = LOCK["model"]
 REMOTE_SOURCE = Path("/tmp/marketforge-pr8-source")
 REMOTE_BUILD = Path("/tmp/marketforge-pr8-build")
+GATE_RESULT_PREFIX = "MARKETFORGE_GATE_RESULT:"
 TIMEOUT_SECONDS = int(EXECUTION["timeout_seconds"])
 PHYSICAL_CORES = Decimal(str(EXECUTION["physical_cores"]))
 MEMORY_GIB = Decimal(str(EXECUTION["memory_mib"])) / Decimal(1024)
@@ -989,7 +990,7 @@ def pr8_l4_gate(
         source=source_identity,
     )
     model_cache.commit()
-    return {
+    result = {
         "schema_version": 1,
         "result": "pass",
         "source": source_identity,
@@ -1006,6 +1007,12 @@ def pr8_l4_gate(
         },
         "vllm_ablations": ablations,
     }
+    print(
+        GATE_RESULT_PREFIX
+        + json.dumps(result, sort_keys=True, allow_nan=False),
+        flush=True,
+    )
+    return result
 
 
 @app.local_entrypoint()
