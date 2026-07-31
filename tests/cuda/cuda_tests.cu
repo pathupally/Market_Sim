@@ -1350,13 +1350,13 @@ MF_TEST(cuda_restricted_output_head_f16_defines_invalid_device_rows) {
       2, 3,
       1, 5,
   };
-  std::array<std::uint32_t, 3> counts{0, 3, 2};
-  std::array<std::uint32_t, 3> observed{};
+  std::uint32_t row_counts[3]{0U, 3U, 2U};
+  std::uint32_t observed[3]{};
   auto stream_result = CudaStream::create();
   auto hidden_result = DeviceBuffer::allocate(sizeof(hidden));
   auto embedding_result = DeviceBuffer::allocate(sizeof(embedding));
   auto allowed_result = DeviceBuffer::allocate(sizeof(allowed));
-  auto counts_result = DeviceBuffer::allocate(sizeof(counts));
+  auto counts_result = DeviceBuffer::allocate(sizeof(row_counts));
   auto output_result = DeviceBuffer::allocate(sizeof(observed));
   MF_CHECK(stream_result);
   MF_CHECK(hidden_result);
@@ -1384,7 +1384,7 @@ MF_TEST(cuda_restricted_output_head_f16_defines_invalid_device_rows) {
                .ok());
   MF_CHECK(counts_device
                .copy_from_host_async(
-                   counts.data(), sizeof(counts), 0, stream.handle())
+                   row_counts, sizeof(row_counts), 0, stream.handle())
                .ok());
   MF_CHECK(marketforge::cuda::restricted_output_head_f16(
                hidden_device, embedding_device, allowed_device,
@@ -1393,7 +1393,7 @@ MF_TEST(cuda_restricted_output_head_f16_defines_invalid_device_rows) {
                .ok());
   MF_CHECK(output_device
                .copy_to_host_async(
-                   observed.data(), sizeof(observed), 0, stream.handle())
+                   observed, sizeof(observed), 0, stream.handle())
                .ok());
   MF_CHECK(stream.synchronize().ok());
   for (const auto token : observed) {

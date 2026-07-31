@@ -51,3 +51,11 @@ Remote process:
   project tracker to $4.613196;
 - the test now uses the equivalent literal extent and preserves the runtime
   `rows` value passed to the API under test.
+- attempt `ap-5fuQAkND8AWFjp1N4wrv7e` confirmed that NVCC rejected the local
+  `std::array` declaration itself even with a literal extent, while again
+  compiling the production kernel and native runtime successfully;
+- no GPU test, benchmark, checkpoint load, or inference ran;
+- its complete $0.239364 ceiling remains counted conservatively, bringing the
+  project tracker to $4.852560;
+- the three-row invalid-device test now uses fixed C arrays, removing the
+  problematic template without weakening the tested device-buffer contract.
