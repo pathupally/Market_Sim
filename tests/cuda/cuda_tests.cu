@@ -1350,8 +1350,8 @@ MF_TEST(cuda_restricted_output_head_f16_defines_invalid_device_rows) {
       2, 3,
       1, 5,
   };
-  std::array<std::uint32_t, rows> counts{0, 3, 2};
-  std::array<std::uint32_t, rows> observed{};
+  std::array<std::uint32_t, 3> counts{0, 3, 2};
+  std::array<std::uint32_t, 3> observed{};
   auto stream_result = CudaStream::create();
   auto hidden_result = DeviceBuffer::allocate(sizeof(hidden));
   auto embedding_result = DeviceBuffer::allocate(sizeof(embedding));

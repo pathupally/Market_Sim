@@ -39,3 +39,15 @@ Local evidence:
 - `git diff --check`: passed.
 
 Remote evidence: pending the source-bound combined L4 gate.
+
+Remote process:
+
+- attempt `ap-UnIzpR7EA4H53h03uHEQBI` compiled the new CUDA kernel and native
+  runtime, then failed while compiling a test-only `std::array` whose extent
+  used a local `std::uint64_t` constant accepted by Apple Clang but rejected as
+  an NVCC non-type template argument;
+- no GPU test, benchmark, checkpoint load, or inference ran;
+- its complete $0.239364 ceiling remains counted conservatively, bringing the
+  project tracker to $4.613196;
+- the test now uses the equivalent literal extent and preserves the runtime
+  `rows` value passed to the API under test.
