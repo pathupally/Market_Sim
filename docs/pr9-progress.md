@@ -6,7 +6,7 @@ Base: `1a9d65e`
 
 ## Milestone 1 — generic finite-choice grammar
 
-Status: locally complete
+Status: accepted
 
 Delivered:
 
@@ -17,7 +17,7 @@ Delivered:
 
 ## Milestone 2 — fused restricted CUDA output head
 
-Status: locally complete; GPU validation pending
+Status: accepted
 
 Delivered:
 
@@ -38,7 +38,20 @@ Local evidence:
 - public CUDA headers compile on macOS without CUDA headers;
 - `git diff --check`: passed.
 
-Remote evidence: pending the source-bound combined L4 gate.
+Remote evidence:
+
+- accepted app: `ap-cudAIzy6z8tpmSyazMUWTy`;
+- source: commit `236c0346b724332c821cce46f79f8853d3e3a447`, bundle
+  `1f6ec1e5cd42ab84a8f907ff2eed77ed60dc5f81feffd56a5b3eb0b3295f8da2`;
+- NVIDIA L4 (compute capability 8.9), Release CUDA build and 6/6 CTests;
+- exact native SmolLM2 output `[198, 198, 504]` and exact vLLM eager/graph
+  parity;
+- 12/12 restricted-head benchmark cells passed exact token parity;
+- observed restricted-head speedup ranged from 1.272x to 20.717x while
+  avoiding 98,304 to 25,165,824 bytes of materialized logits per operation;
+- CUDA graphs improved single-request inference by 3.378x and batch inference
+  by 2.089x; warm prefix replay improved by 2.170x;
+- compact machine-readable evidence: `docs/pr9-modal-result.json`.
 
 Remote process:
 
@@ -68,3 +81,6 @@ Remote process:
 - subsequent launches use detached mode and emit a strict source-bound result
   line inside the remote function, so client lifetime cannot cancel compute or
   discard accepted evidence.
+- detached attempt `ap-cudAIzy6z8tpmSyazMUWTy` passed the complete gate; its
+  full $0.239364 ceiling is counted conservatively, bringing the project
+  tracker to $5.331288.

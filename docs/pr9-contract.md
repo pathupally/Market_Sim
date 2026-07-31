@@ -1,6 +1,6 @@
 # PR 9 contract: constrained output-head acceleration
 
-Status: implementation complete; GPU acceptance pending
+Status: accepted
 Date: 2026-07-31
 Base commit: `1a9d65e`
 
@@ -47,6 +47,9 @@ that every constrained cardinality must outperform cuBLAS.
 ## Budget
 
 The existing combined vLLM/native Modal gate remains limited to one L4, one
-container, 15 minutes, and $0.239364. Conservative project accounting before
-this attempt is $4.373832, below the $24 software cap that protects the user's
-$6 reserve.
+container, 15 minutes, and $0.239364. Accepted app
+`ap-cudAIzy6z8tpmSyazMUWTy` is bound to commit `236c0346` and source bundle
+`1f6ec1e5`; it passed 6/6 remote CTests, native and vLLM token parity, and all
+12 restricted-head benchmark cells. Conservative project accounting after the
+run is $5.331288, below the $24 software cap that protects the user's $6
+reserve.

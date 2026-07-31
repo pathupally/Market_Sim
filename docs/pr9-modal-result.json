@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "app_id": "ap-cudAIzy6z8tpmSyazMUWTy",
+  "source": {
+    "commit": "236c0346b724332c821cce46f79f8853d3e3a447",
+    "bundle_sha256": "1f6ec1e5cd42ab84a8f907ff2eed77ed60dc5f81feffd56a5b3eb0b3295f8da2"
+  },
+  "budget": {
+    "maximum_compute_cost_usd": 0.239364,
+    "conservative_project_spend_usd": 5.331288,
+    "project_soft_cap_usd": 24.0
+  },
+  "hardware": {
+    "gpu": "NVIDIA L4",
+    "compute_capability": "8.9"
+  },
+  "tests": {
+    "passed": 6,
+    "failed": 0
+  },
+  "native_inference": {
+    "backend": "native_cuda_f16",
+    "prompt_token_ids": [0, 1, 2, 3],
+    "generated_token_ids": [198, 198, 504],
+    "model_load_seconds": 0.495948,
+    "inference_seconds": 0.268543,
+    "total_device_bytes": 269373104
+  },
+  "restricted_output_head": {
+    "vocabulary_size": 49152,
+    "hidden_size": 576,
+    "exact_parity_cells": 12,
+    "measurements": [
+      {"rows": 1, "allowed": 2, "full_us": 238.672, "restricted_us": 12.872, "speedup": 18.542},
+      {"rows": 1, "allowed": 8, "full_us": 238.643, "restricted_us": 14.864, "speedup": 16.055},
+      {"rows": 1, "allowed": 32, "full_us": 238.533, "restricted_us": 26.196, "speedup": 9.106},
+      {"rows": 1, "allowed": 128, "full_us": 238.635, "restricted_us": 44.702, "speedup": 5.338},
+      {"rows": 16, "allowed": 2, "full_us": 249.651, "restricted_us": 13.155, "speedup": 18.978},
+      {"rows": 16, "allowed": 8, "full_us": 249.631, "restricted_us": 15.012, "speedup": 16.629},
+      {"rows": 16, "allowed": 32, "full_us": 249.334, "restricted_us": 26.423, "speedup": 9.436},
+      {"rows": 16, "allowed": 128, "full_us": 248.832, "restricted_us": 45.609, "speedup": 5.456},
+      {"rows": 256, "allowed": 2, "full_us": 365.312, "restricted_us": 17.633, "speedup": 20.717},
+      {"rows": 256, "allowed": 8, "full_us": 370.473, "restricted_us": 28.938, "speedup": 12.802},
+      {"rows": 256, "allowed": 32, "full_us": 375.009, "restricted_us": 91.177, "speedup": 4.113},
+      {"rows": 256, "allowed": 128, "full_us": 374.170, "restricted_us": 294.144, "speedup": 1.272}
+    ]
+  },
+  "vllm_ablations": {
+    "version": "0.25.1",
+    "generated_token_ids": [198, 198, 504],
+    "graph_single_speedup": 3.377808299399306,
+    "graph_batch_speedup": 2.0885400017384272,
+    "eager_batch_request_throughput_gain": 28.365355535324113,
+    "graph_batch_request_throughput_gain": 17.538644721073215,
+    "warm_prefix_speedup": 2.1704324538388065
+  }
+}
