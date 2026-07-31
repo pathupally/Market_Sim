@@ -29,7 +29,8 @@ public:
   [[nodiscard]] static Result<CudaSmolLm2>
   load(const std::filesystem::path& checkpoint,
        std::uint32_t maximum_context,
-       std::uint32_t maximum_prefill_tokens);
+       std::uint32_t maximum_prefill_tokens,
+       std::uint32_t maximum_restricted_tokens = 128);
 
   CudaSmolLm2(CudaSmolLm2&&) noexcept = default;
   CudaSmolLm2& operator=(CudaSmolLm2&&) noexcept = default;
@@ -40,7 +41,15 @@ public:
   [[nodiscard]] Result<std::uint32_t>
   prefill(std::span<const std::uint32_t> token_ids) noexcept;
   [[nodiscard]] Result<std::uint32_t>
+  prefill_restricted(
+      std::span<const std::uint32_t> token_ids,
+      std::span<const std::uint32_t> allowed_token_ids) noexcept;
+  [[nodiscard]] Result<std::uint32_t>
   decode(std::uint32_t token_id) noexcept;
+  [[nodiscard]] Result<std::uint32_t>
+  decode_restricted(
+      std::uint32_t token_id,
+      std::span<const std::uint32_t> allowed_token_ids) noexcept;
 
   [[nodiscard]] std::uint32_t context_length() const noexcept {
     return context_length_;
@@ -84,7 +93,8 @@ private:
   allocate_execution(std::uint64_t rows, const ModelSpec& spec) noexcept;
   [[nodiscard]] Result<std::uint32_t>
   forward(std::span<const std::uint32_t> token_ids,
-          ExecutionBuffers& execution) noexcept;
+          ExecutionBuffers& execution,
+          std::span<const std::uint32_t> allowed_token_ids) noexcept;
 
   ModelSpec spec_{};
   CudaStream stream_;
@@ -97,10 +107,13 @@ private:
   DeviceBuffer last_hidden_;
   DeviceBuffer last_normalized_;
   DeviceBuffer logits_;
+  DeviceBuffer restricted_token_ids_;
+  DeviceBuffer restricted_token_count_;
   DeviceBuffer selected_token_;
   std::vector<std::uint32_t> host_positions_;
   std::uint32_t maximum_context_{0};
   std::uint32_t maximum_prefill_tokens_{0};
+  std::uint32_t maximum_restricted_tokens_{0};
   std::uint32_t context_length_{0};
   CudaSmolLm2Memory memory_{};
 };

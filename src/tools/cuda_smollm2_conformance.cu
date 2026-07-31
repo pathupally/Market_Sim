@@ -79,6 +79,32 @@ int main(const int argument_count, const char* const* const arguments) {
     std::cerr << "native CUDA greedy token mismatch\n";
     return 1;
   }
+  constexpr std::array<std::array<std::uint32_t, 4>, 3> legal_tokens{{
+      {{42, 198, 504, 900}},
+      {{17, 198, 504, 777}},
+      {{3, 198, 504, 1'024}},
+  }};
+  std::array<std::uint32_t, 3> restricted{};
+  if (!model.reset().ok()) {
+    return 1;
+  }
+  next = model.prefill_restricted(prompt, legal_tokens[0]);
+  if (!next) {
+    return 1;
+  }
+  restricted[0] = next.value();
+  for (std::size_t index = 1; index < restricted.size(); ++index) {
+    next = model.decode_restricted(restricted[index - 1],
+                                   legal_tokens[index]);
+    if (!next) {
+      return 1;
+    }
+    restricted[index] = next.value();
+  }
+  if (restricted != expected || model.context_length() != 6) {
+    std::cerr << "native CUDA restricted output-head token mismatch\n";
+    return 1;
+  }
   const auto memory = model.memory();
   std::cout << std::fixed << std::setprecision(6)
             << "{\"schema_version\":1,\"result\":\"pass\","

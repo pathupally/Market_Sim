@@ -144,11 +144,13 @@ CudaSmolLm2::allocate_execution(const std::uint64_t rows,
 Result<CudaSmolLm2>
 CudaSmolLm2::load(const std::filesystem::path& checkpoint,
                   const std::uint32_t maximum_context,
-                  const std::uint32_t maximum_prefill_tokens) {
+                  const std::uint32_t maximum_prefill_tokens,
+                  const std::uint32_t maximum_restricted_tokens) {
   const ModelSpec spec = smollm2_135m_profile().spec;
   if (maximum_context == 0 || maximum_context > spec.max_positions ||
       maximum_prefill_tokens == 0 ||
-      maximum_prefill_tokens > maximum_context) {
+      maximum_prefill_tokens > maximum_context ||
+      maximum_restricted_tokens == 0) {
     return Result<CudaSmolLm2>::failure(
         Status::failure(ErrorCode::invalid_argument));
   }
@@ -175,6 +177,7 @@ CudaSmolLm2::load(const std::filesystem::path& checkpoint,
   model.final_norm_ = std::move(final_norm).value();
   model.maximum_context_ = maximum_context;
   model.maximum_prefill_tokens_ = maximum_prefill_tokens;
+  model.maximum_restricted_tokens_ = maximum_restricted_tokens;
   model.host_positions_.resize(maximum_prefill_tokens);
   model.layers_.reserve(spec.layers);
 
@@ -229,10 +232,15 @@ CudaSmolLm2::load(const std::filesystem::path& checkpoint,
   auto last_hidden = allocate_f16(spec.hidden_size);
   auto last_normalized = allocate_f16(spec.hidden_size);
   auto logits = allocate_f16(spec.vocabulary_size);
+  auto restricted_token_ids = DeviceBuffer::allocate(
+      static_cast<std::uint64_t>(maximum_restricted_tokens) *
+      sizeof(std::uint32_t));
+  auto restricted_token_count =
+      DeviceBuffer::allocate(sizeof(std::uint32_t));
   auto selected_token =
       DeviceBuffer::allocate(sizeof(std::uint32_t));
   if (!prefill || !decode || !last_hidden || !last_normalized || !logits ||
-      !selected_token) {
+      !restricted_token_ids || !restricted_token_count || !selected_token) {
     return Result<CudaSmolLm2>::failure(
         Status::failure(ErrorCode::allocation_failed));
   }
@@ -241,6 +249,9 @@ CudaSmolLm2::load(const std::filesystem::path& checkpoint,
   model.last_hidden_ = std::move(last_hidden).value();
   model.last_normalized_ = std::move(last_normalized).value();
   model.logits_ = std::move(logits).value();
+  model.restricted_token_ids_ = std::move(restricted_token_ids).value();
+  model.restricted_token_count_ =
+      std::move(restricted_token_count).value();
   model.selected_token_ = std::move(selected_token).value();
 
   const auto parameter_count = estimate_parameter_count(spec);
@@ -278,6 +289,8 @@ CudaSmolLm2::load(const std::filesystem::path& checkpoint,
       model.decode_.gate.size_bytes() + model.decode_.up.size_bytes() +
       model.last_hidden_.size_bytes() +
       model.last_normalized_.size_bytes() + model.logits_.size_bytes() +
+      model.restricted_token_ids_.size_bytes() +
+      model.restricted_token_count_.size_bytes() +
       model.selected_token_.size_bytes();
   const auto weights_and_kv =
       checked_add(weight_bytes.value(), kv_bytes.value());
@@ -317,7 +330,19 @@ CudaSmolLm2::prefill(
     return Result<std::uint32_t>::failure(
         Status::failure(ErrorCode::invalid_argument));
   }
-  return forward(token_ids, prefill_);
+  return forward(token_ids, prefill_, {});
+}
+
+Result<std::uint32_t> CudaSmolLm2::prefill_restricted(
+    const std::span<const std::uint32_t> token_ids,
+    const std::span<const std::uint32_t> allowed_token_ids) noexcept {
+  if (context_length_ != 0 ||
+      token_ids.size() != maximum_prefill_tokens_ ||
+      allowed_token_ids.empty()) {
+    return Result<std::uint32_t>::failure(
+        Status::failure(ErrorCode::invalid_argument));
+  }
+  return forward(token_ids, prefill_, allowed_token_ids);
 }
 
 Result<std::uint32_t>
@@ -326,14 +351,27 @@ CudaSmolLm2::decode(const std::uint32_t token_id) noexcept {
     return Result<std::uint32_t>::failure(
         Status::failure(ErrorCode::invalid_argument));
   }
-  return forward(std::span<const std::uint32_t>(&token_id, 1), decode_);
+  return forward(std::span<const std::uint32_t>(&token_id, 1), decode_, {});
+}
+
+Result<std::uint32_t> CudaSmolLm2::decode_restricted(
+    const std::uint32_t token_id,
+    const std::span<const std::uint32_t> allowed_token_ids) noexcept {
+  if (context_length_ == 0 || allowed_token_ids.empty()) {
+    return Result<std::uint32_t>::failure(
+        Status::failure(ErrorCode::invalid_argument));
+  }
+  return forward(std::span<const std::uint32_t>(&token_id, 1), decode_,
+                 allowed_token_ids);
 }
 
 Result<std::uint32_t> CudaSmolLm2::forward(
     const std::span<const std::uint32_t> token_ids,
-    ExecutionBuffers& execution) noexcept {
+    ExecutionBuffers& execution,
+    const std::span<const std::uint32_t> allowed_token_ids) noexcept {
   if (token_ids.size() != execution.rows ||
-      execution.rows > maximum_context_ - context_length_) {
+      execution.rows > maximum_context_ - context_length_ ||
+      allowed_token_ids.size() > maximum_restricted_tokens_) {
     return Result<std::uint32_t>::failure(
         Status::failure(ErrorCode::invalid_argument));
   }
@@ -344,6 +382,26 @@ Result<std::uint32_t> CudaSmolLm2::forward(
     }
     host_positions_[index] =
         context_length_ + static_cast<std::uint32_t>(index);
+  }
+  for (const auto token_id : allowed_token_ids) {
+    if (token_id >= spec_.vocabulary_size) {
+      return Result<std::uint32_t>::failure(
+          Status::failure(ErrorCode::invalid_argument, token_id));
+    }
+  }
+  if (!allowed_token_ids.empty()) {
+    const auto count =
+        static_cast<std::uint32_t>(allowed_token_ids.size());
+    auto restricted_status = restricted_token_ids_.copy_from_host_async(
+        allowed_token_ids.data(),
+        allowed_token_ids.size_bytes(), 0, stream_.handle());
+    if (restricted_status.ok()) {
+      restricted_status = restricted_token_count_.copy_from_host_async(
+          &count, sizeof(count), 0, stream_.handle());
+    }
+    if (!restricted_status.ok()) {
+      return Result<std::uint32_t>::failure(restricted_status);
+    }
   }
   const auto token_bytes =
       execution.rows * sizeof(std::uint32_t);
@@ -417,15 +475,21 @@ Result<std::uint32_t> CudaSmolLm2::forward(
         last_hidden_, final_norm_, last_normalized_, 1, spec_.hidden_size,
         spec_.rms_norm_epsilon, stream_.handle());
   }
-  if (status.ok()) {
+  if (status.ok() && allowed_token_ids.empty()) {
     status = linear_f16(
         last_normalized_, embedding_, logits_, 1, spec_.hidden_size,
         spec_.vocabulary_size, cublas_, stream_.handle());
   }
-  if (status.ok()) {
+  if (status.ok() && allowed_token_ids.empty()) {
     status = greedy_select_f16(
         logits_, selected_token_, 1, spec_.vocabulary_size,
         stream_.handle());
+  }
+  if (status.ok() && !allowed_token_ids.empty()) {
+    status = restricted_output_head_f16(
+        last_normalized_, embedding_, restricted_token_ids_,
+        restricted_token_count_, selected_token_, 1, spec_.hidden_size,
+        spec_.vocabulary_size, maximum_restricted_tokens_, stream_.handle());
   }
   std::uint32_t selected = 0;
   if (status.ok()) {

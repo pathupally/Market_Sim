@@ -45,6 +45,7 @@ add_library(marketforge_grammar
   src/grammar/action.cpp
   src/grammar/action_dfa.cpp
   src/grammar/smollm2_market_actions.cpp
+  src/grammar/token_dfa.cpp
 )
 add_library(MarketForge::grammar ALIAS marketforge_grammar)
 target_compile_features(marketforge_grammar PUBLIC cxx_std_20)
@@ -191,6 +192,7 @@ if(BUILD_TESTING)
     tests/unit/model_spec_tests.cpp
     tests/unit/paged_kv_cache_tests.cpp
     tests/unit/sequence_scheduler_tests.cpp
+    tests/unit/token_dfa_tests.cpp
     tests/property/action_dfa_properties.cpp
     tests/property/market_properties.cpp
     tests/unit/test_main.cpp
@@ -375,6 +377,32 @@ if(BUILD_TESTING)
         CUDA_STANDARD_REQUIRED ON
     )
     marketforge_set_warnings(marketforge_cuda_restricted_greedy_bench)
+
+    add_executable(
+      marketforge_cuda_restricted_output_head_bench
+      src/tools/cuda_restricted_output_head_bench.cu
+    )
+    target_link_libraries(
+      marketforge_cuda_restricted_output_head_bench
+      PRIVATE
+        MarketForge::cuda
+        CUDA::cudart
+    )
+    target_compile_features(
+      marketforge_cuda_restricted_output_head_bench
+      PRIVATE cxx_std_20 cuda_std_20
+    )
+    set_target_properties(
+      marketforge_cuda_restricted_output_head_bench
+      PROPERTIES
+        CUDA_ARCHITECTURES 89
+        CUDA_EXTENSIONS OFF
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+    )
+    marketforge_set_warnings(
+      marketforge_cuda_restricted_output_head_bench
+    )
 
     add_executable(
       marketforge_cuda_transformer_ops_bench

@@ -426,6 +426,95 @@ def _validate_restricted_benchmark(benchmark: object) -> None:
                 )
 
 
+def _validate_restricted_output_head_benchmark(benchmark: object) -> None:
+    if type(benchmark) is not dict or set(benchmark) != {
+        "schema_version",
+        "result",
+        "operator",
+        "model_shape",
+        "hidden_size",
+        "vocabulary_size",
+        "gpu",
+        "measurements",
+    }:
+        raise RuntimeError("restricted output-head benchmark schema mismatch")
+    gpu = benchmark["gpu"]
+    measurements = benchmark["measurements"]
+    if (
+        benchmark["schema_version"] != 1
+        or benchmark["result"] != "pass"
+        or benchmark["operator"] != "restricted_output_head_f16"
+        or benchmark["model_shape"] != "SmolLM2-135M"
+        or benchmark["hidden_size"] != 576
+        or benchmark["vocabulary_size"] != 49_152
+        or type(gpu) is not dict
+        or set(gpu) != {"name", "compute_capability"}
+        or "L4" not in str(gpu["name"])
+        or gpu["compute_capability"] != "8.9"
+        or type(measurements) is not list
+        or len(measurements) != 12
+    ):
+        raise RuntimeError("restricted output-head benchmark identity mismatch")
+    fields = {
+        "rows",
+        "allowed_tokens_per_row",
+        "iterations",
+        "full_average_microseconds",
+        "restricted_average_microseconds",
+        "speedup",
+        "full_scores",
+        "restricted_scores",
+        "materialized_logit_bytes_avoided",
+        "exact_token_parity",
+    }
+    observed_axes: set[tuple[int, int]] = set()
+    for measurement in measurements:
+        if type(measurement) is not dict or set(measurement) != fields:
+            raise RuntimeError(
+                "restricted output-head measurement is malformed"
+            )
+        rows = measurement["rows"]
+        allowed = measurement["allowed_tokens_per_row"]
+        iterations = measurement["iterations"]
+        if (
+            type(rows) is not int
+            or rows not in {1, 16, 256}
+            or type(allowed) is not int
+            or allowed not in {2, 8, 32, 128}
+            or type(iterations) is not int
+            or iterations <= 0
+            or measurement["full_scores"] != rows * 49_152
+            or measurement["restricted_scores"] != rows * allowed
+            or measurement["materialized_logit_bytes_avoided"]
+            != rows * 49_152 * 2
+            or measurement["exact_token_parity"] is not True
+        ):
+            raise RuntimeError(
+                "restricted output-head measurement identity mismatch"
+            )
+        observed_axes.add((rows, allowed))
+        for field in (
+            "full_average_microseconds",
+            "restricted_average_microseconds",
+            "speedup",
+        ):
+            value = measurement[field]
+            if (
+                type(value) is not float
+                or not math.isfinite(value)
+                or value <= 0.0
+            ):
+                raise RuntimeError(
+                    "restricted output-head timing is malformed"
+                )
+    if observed_axes != {
+        (rows, allowed)
+        for rows in (1, 16, 256)
+        for allowed in (2, 8, 32, 128)
+    }:
+        raise RuntimeError("restricted output-head axes are incomplete")
+
+
 def _inference_seconds(payload: dict[str, object]) -> float:
     metrics = payload["metrics"]
     if type(metrics) is not dict:
@@ -796,6 +885,15 @@ def pr8_l4_gate(
         [str(REMOTE_BUILD / "marketforge_cuda_restricted_greedy_bench")],
         environment=environment,
     )
+    restricted_output_head_run = _run(
+        [
+            str(
+                REMOTE_BUILD
+                / "marketforge_cuda_restricted_output_head_bench"
+            )
+        ],
+        environment=environment,
+    )
     rmsnorm_benchmark = _strict_json_line(str(rmsnorm_run["output"]))
     linear_benchmark = _strict_json_line(str(linear_run["output"]))
     transformer_ops_benchmark = _strict_json_line(
@@ -803,6 +901,9 @@ def pr8_l4_gate(
     )
     restricted_greedy_benchmark = _strict_json_line(
         str(restricted_greedy_run["output"])
+    )
+    restricted_output_head_benchmark = _strict_json_line(
+        str(restricted_output_head_run["output"])
     )
     _validate_benchmark(
         rmsnorm_benchmark,
@@ -820,6 +921,9 @@ def pr8_l4_gate(
         measurement_count=6,
     )
     _validate_restricted_benchmark(restricted_greedy_benchmark)
+    _validate_restricted_output_head_benchmark(
+        restricted_output_head_benchmark
+    )
 
     model = ModelIdentity(
         model_id=MODEL["id"],
@@ -895,6 +999,9 @@ def pr8_l4_gate(
             "linear_benchmark": linear_benchmark,
             "transformer_ops_benchmark": transformer_ops_benchmark,
             "restricted_greedy_benchmark": restricted_greedy_benchmark,
+            "restricted_output_head_benchmark": (
+                restricted_output_head_benchmark
+            ),
             "smollm2_inference": native_inference,
         },
         "vllm_ablations": ablations,

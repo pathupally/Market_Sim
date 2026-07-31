@@ -19,6 +19,7 @@ from tools.modal.vllm_modal_app import (
     _validate_benchmark,
     _validate_native_inference,
     _validate_restricted_benchmark,
+    _validate_restricted_output_head_benchmark,
     _validate_vllm_ablations,
     verify_checkpoint,
 )
@@ -338,6 +339,40 @@ class VllmModalAppTest(unittest.TestCase):
         benchmark["measurements"][0]["candidate_gib_per_second"] = 0.0
         with self.assertRaises(RuntimeError):
             _validate_restricted_benchmark(benchmark)
+
+    def test_restricted_output_head_benchmark_schema_is_strict(self) -> None:
+        benchmark = {
+            "schema_version": 1,
+            "result": "pass",
+            "operator": "restricted_output_head_f16",
+            "model_shape": "SmolLM2-135M",
+            "hidden_size": 576,
+            "vocabulary_size": 49_152,
+            "gpu": {
+                "name": "NVIDIA L4",
+                "compute_capability": "8.9",
+            },
+            "measurements": [
+                {
+                    "rows": rows,
+                    "allowed_tokens_per_row": allowed,
+                    "iterations": 10,
+                    "full_average_microseconds": 10.0,
+                    "restricted_average_microseconds": 2.0,
+                    "speedup": 5.0,
+                    "full_scores": rows * 49_152,
+                    "restricted_scores": rows * allowed,
+                    "materialized_logit_bytes_avoided": rows * 49_152 * 2,
+                    "exact_token_parity": True,
+                }
+                for rows in (1, 16, 256)
+                for allowed in (2, 8, 32, 128)
+            ],
+        }
+        _validate_restricted_output_head_benchmark(benchmark)
+        benchmark["measurements"][0]["exact_token_parity"] = False
+        with self.assertRaises(RuntimeError):
+            _validate_restricted_output_head_benchmark(benchmark)
 
     def test_vllm_ablation_schema_and_comparisons_are_strict(self) -> None:
         result = _build_vllm_ablations(
