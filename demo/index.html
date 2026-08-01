@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="description" content="Velorum deterministic autonomy workload replay">
+    <title>Velorum — Autonomy trace</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#replay">Skip to replay</a>
+    <header class="masthead">
+      <div class="identity" aria-label="Velorum">
+        <span class="eyebrow">C++ / CUDA autonomy systems</span>
+        <span class="wordmark">VELORUM</span>
+      </div>
+      <div class="run-state">
+        <span class="live-mark" aria-hidden="true"></span>
+        <span id="load-status" role="status">Loading reference trace…</span>
+      </div>
+      <label class="file-control" for="trace-file">
+        <span>Load trace</span>
+        <input id="trace-file" type="file" accept="application/json,.json">
+      </label>
+    </header>
+
+    <main id="replay">
+      <section class="lede" aria-labelledby="page-title">
+        <div>
+          <p class="section-number">TRACE / 001</p>
+          <h1 id="page-title">Decisions<br>under pressure.</h1>
+        </div>
+        <p class="lede-copy">
+          Noisy radar returns become grammar-safe actions inside a bounded
+          continuous-batching scheduler. Scrub every decision, cache reuse,
+          and missed deadline from one deterministic C++ run.
+        </p>
+      </section>
+
+      <section class="metric-band" aria-label="Workload summary">
+        <div class="metric metric-primary">
+          <span class="metric-label">P99 decision</span>
+          <strong id="metric-p99">—</strong>
+          <small>milliseconds</small>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Grammar validity</span>
+          <strong id="metric-valid">—</strong>
+          <small>legal actions</small>
+        </div>
+        <div class="metric">
+          <span class="metric-label">KV page reduction</span>
+          <strong id="metric-cache">—</strong>
+          <small>shared prefix</small>
+        </div>
+        <div class="metric metric-wide">
+          <span class="metric-label">Workload rate</span>
+          <strong id="metric-rate">—</strong>
+          <small>decisions / service second</small>
+        </div>
+      </section>
+
+      <section class="replay-shell" aria-label="Scenario replay">
+        <div class="plot-column">
+          <div class="plot-heading">
+            <div>
+              <span class="plot-kicker">AIRSPACE / LOCAL FRAME</span>
+              <h2>Radar operating picture</h2>
+            </div>
+            <div class="frame-readout">
+              <span>Frame</span>
+              <strong id="frame-number">00 / 00</strong>
+            </div>
+          </div>
+          <div class="canvas-wrap">
+            <canvas id="scenario-canvas" width="1200" height="760" tabindex="0" aria-label="Animated top-down map of vehicles, targets, and radar returns">
+              This replay requires canvas support.
+            </canvas>
+            <div class="map-key" aria-label="Map legend">
+              <span><i class="vehicle-key"></i>Vehicle</span>
+              <span><i class="target-key"></i>Track</span>
+              <span><i class="estimate-key"></i>Radar estimate</span>
+            </div>
+            <div class="coordinate-stamp" aria-hidden="true">ENU ±220 m</div>
+          </div>
+          <div class="transport" aria-label="Replay controls">
+            <button id="previous-frame" type="button" aria-label="Previous frame">−1</button>
+            <button id="play-toggle" class="play-toggle" type="button">Play replay</button>
+            <button id="next-frame" type="button" aria-label="Next frame">+1</button>
+            <label class="timeline-label" for="timeline">Simulation time</label>
+            <input id="timeline" type="range" min="0" max="0" value="0" step="1">
+            <output id="simulation-time" for="timeline">T+00.00 s</output>
+          </div>
+        </div>
+
+        <aside class="telemetry" aria-labelledby="telemetry-title">
+          <div class="telemetry-heading">
+            <p class="section-number">SELECTED ASSET</p>
+            <h2 id="telemetry-title">Vehicle <span id="vehicle-id">01</span></h2>
+          </div>
+          <dl class="asset-data">
+            <div>
+              <dt>Command</dt>
+              <dd id="vehicle-action">—</dd>
+            </div>
+            <div>
+              <dt>Decision latency</dt>
+              <dd id="vehicle-latency">—</dd>
+            </div>
+            <div>
+              <dt>Fuel state</dt>
+              <dd id="vehicle-fuel">—</dd>
+            </div>
+            <div>
+              <dt>Nearest track</dt>
+              <dd id="vehicle-track">—</dd>
+            </div>
+          </dl>
+
+          <div class="deadline-panel">
+            <div class="deadline-copy">
+              <span>Deadline</span>
+              <strong id="deadline-state">—</strong>
+            </div>
+            <div class="deadline-track" aria-hidden="true">
+              <span id="deadline-fill"></span>
+              <i id="deadline-marker"></i>
+            </div>
+            <small id="deadline-detail">Select a trace to inspect scheduling.</small>
+          </div>
+
+          <div class="action-mix">
+            <div class="subhead">
+              <h3>Command mix</h3>
+              <span id="decision-count">— decisions</span>
+            </div>
+            <div id="action-bars" class="action-bars"></div>
+          </div>
+
+          <div class="evidence-note">
+            <span>Runtime evidence</span>
+            <p>Native CUDA + vLLM parity on NVIDIA L4. This replay is generated by the deterministic CPU control-plane workload.</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="evidence-strip" aria-label="Scheduler evidence">
+        <div>
+          <span>Continuous batches</span>
+          <strong id="evidence-batches">—</strong>
+        </div>
+        <div>
+          <span>Deadline attainment</span>
+          <strong id="evidence-deadlines">—</strong>
+        </div>
+        <div>
+          <span>Jain fairness</span>
+          <strong id="evidence-fairness">—</strong>
+        </div>
+        <div>
+          <span>Faster than real time</span>
+          <strong id="evidence-realtime">—</strong>
+        </div>
+        <p id="trace-identity">Awaiting trace identity.</p>
+      </section>
+    </main>
+
+    <footer>
+      <span>VELORUM / REAL-TIME INFERENCE &amp; SIMULATION</span>
+      <span>Arrow keys step · Space plays · Click a vehicle to inspect</span>
+    </footer>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>

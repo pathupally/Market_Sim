@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(
-  MarketForge
-  VERSION 0.1.0
-  DESCRIPTION "Stateful-agent C++/CUDA inference runtime"
+  Velorum
+  VERSION 1.0.0
+  DESCRIPTION "Real-time C++/CUDA inference and autonomy simulation"
   LANGUAGES CXX
 )
 
@@ -74,6 +74,26 @@ target_include_directories(
 target_link_libraries(marketforge_serving PUBLIC MarketForge::core)
 marketforge_set_warnings(marketforge_serving)
 marketforge_enable_sanitizers(marketforge_serving)
+
+add_library(velorum_autonomy
+  src/autonomy/simulation.cpp
+)
+add_library(Velorum::autonomy ALIAS velorum_autonomy)
+target_compile_features(velorum_autonomy PUBLIC cxx_std_20)
+target_include_directories(
+  velorum_autonomy
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
+)
+target_link_libraries(
+  velorum_autonomy
+  PUBLIC
+    MarketForge::grammar
+    MarketForge::serving
+)
+marketforge_set_warnings(velorum_autonomy)
+marketforge_enable_sanitizers(velorum_autonomy)
 
 add_library(marketforge_market
   src/market/batch_market.cpp
@@ -179,6 +199,11 @@ target_link_libraries(
 marketforge_set_warnings(marketforge_market_trace)
 marketforge_enable_sanitizers(marketforge_market_trace)
 
+add_executable(velorum_demo src/tools/velorum_demo.cpp)
+target_link_libraries(velorum_demo PRIVATE Velorum::autonomy)
+marketforge_set_warnings(velorum_demo)
+marketforge_enable_sanitizers(velorum_demo)
+
 include(CTest)
 if(BUILD_TESTING)
   add_executable(marketforge_unit_tests
@@ -187,6 +212,7 @@ if(BUILD_TESTING)
     tests/unit/cpu_operator_tests.cpp
     tests/unit/cpu_smollm2_tests.cpp
     tests/unit/action_dfa_tests.cpp
+    tests/unit/autonomy_simulation_tests.cpp
     tests/unit/loader_tests.cpp
     tests/unit/market_tests.cpp
     tests/unit/model_spec_tests.cpp
@@ -201,7 +227,7 @@ if(BUILD_TESTING)
     marketforge_unit_tests
     PRIVATE
       MarketForge::market
-      MarketForge::serving
+      Velorum::autonomy
   )
   target_include_directories(
     marketforge_unit_tests
@@ -216,6 +242,7 @@ if(BUILD_TESTING)
 
   add_test(NAME marketforge.unit COMMAND marketforge_unit_tests)
   add_test(NAME marketforge.market_trace COMMAND marketforge_market_trace)
+  add_test(NAME velorum.demo COMMAND velorum_demo)
   add_test(
     NAME marketforge.warning_policy
     COMMAND

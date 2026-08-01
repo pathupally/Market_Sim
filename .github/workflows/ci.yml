@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-cxx:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DMARKETFORGE_WARNINGS_AS_ERRORS=ON
+          -DMARKETFORGE_ENABLE_CUDA=OFF
+      - name: Build
+        run: cmake --build build/ci --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure
+      - name: Validate replay assets
+        run: |
+          node --check demo/app.js
+          jq -e '.project == "Velorum" and (.frames | length) == 48' demo/velorum-trace.json
