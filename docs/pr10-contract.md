@@ -1,6 +1,6 @@
 # PR 10 contract: Velorum autonomy release
 
-Status: implementation complete; final validation pending
+Status: accepted
 
 Date: 2026-08-01
 
@@ -47,8 +47,8 @@ the accepted CUDA kernels or model backends.
 ## Acceptance
 
 - Apple Clang Debug and ASan/UBSan builds pass all CTests;
-- a Linux GCC warnings-as-errors build passes through the bounded Modal CPU
-  portability gate;
+- Linux GCC warnings-as-errors and Clang ASan/UBSan builds pass through the
+  bounded Modal CPU portability gate;
 - two identical scenario runs compare equal;
 - JSON parses and contains 48 frames, 1,536 decisions, and 100% grammar
   validity;
@@ -60,6 +60,6 @@ the accepted CUDA kernels or model backends.
 ## Budget
 
 PR10 requires no additional GPU run because its changes are CPU control-plane,
-trace, and documentation code layered over the accepted PR9 GPU commit. The
-Linux CPU portability gate is capped independently and leaves the required $6
-monthly reserve untouched.
+trace, and documentation code layered over the accepted PR9 GPU commit.
+Accepted CPU-only app `ap-cw8PqRkkFPfDdYooHZ5SKh` was capped at $0.0184 for
+August and leaves the required $6 monthly reserve untouched.

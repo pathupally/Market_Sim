@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "result": "pass",
+  "app_id": "ap-cw8PqRkkFPfDdYooHZ5SKh",
+  "source": {
+    "commit": "b173aa5d8eadcf5c6306c38fab22c5caba5b65ef"
+  },
+  "budget": {
+    "gpu": null,
+    "maximum_compute_cost_usd": 0.0184,
+    "august_conservative_spend_usd": 0.0184,
+    "project_soft_cap_usd": 24.0
+  },
+  "environment": {
+    "architecture": "x86_64",
+    "platform": "Linux-4.19.0-gvisor-x86_64-with-glibc2.36",
+    "cmake": "3.25.1",
+    "ninja": "1.11.1",
+    "gcc": "12.2.0",
+    "clang": "14.0.6"
+  },
+  "checks": {
+    "gcc_debug": {
+      "warnings_as_errors": true,
+      "targets_built": 49,
+      "tests_passed": 5,
+      "tests_failed": 0
+    },
+    "clang_sanitize": {
+      "address_sanitizer": true,
+      "undefined_behavior_sanitizer": true,
+      "warnings_as_errors": true,
+      "targets_built": 49,
+      "tests_passed": 5,
+      "tests_failed": 0
+    }
+  },
+  "wall_seconds": 39.548
+}

@@ -31,7 +31,7 @@ Reference workload result:
 
 ## Milestone 2 — portfolio replay and release package
 
-Status: locally complete; final Linux gate pending
+Status: accepted
 
 - added a dependency-free Canvas replay with target trails, radar estimates,
   vehicle selection, deadline inspection, autoplay, scrubbing, and keyboard
@@ -49,3 +49,22 @@ Local evidence:
 - Apple Clang ASan/UBSan: 5/5 CTests passed before final documentation;
 - JavaScript syntax and reference JSON validation: passed;
 - `git diff --check`: passed.
+
+Remote Linux evidence:
+
+- accepted app: `ap-cw8PqRkkFPfDdYooHZ5SKh`;
+- source commit: `b173aa5d8eadcf5c6306c38fab22c5caba5b65ef`;
+- x86_64 Linux/gVisor, CMake 3.25.1, Ninja 1.11.1;
+- GCC 12.2 warnings-as-errors Debug build: 49/49 targets built, 5/5 CTests
+  passed;
+- Clang 14 ASan/UBSan build: 49/49 targets built, 5/5 CTests passed;
+- total remote gate wall time: 39.548 seconds;
+- CPU-only maximum compute cost: $0.0184; August conservative tracker:
+  $0.0184;
+- compact machine-readable evidence: `docs/pr10-modal-result.json`.
+
+## Release status
+
+PR10 is complete. PR9 GPU evidence remains valid because PR10 did not modify
+the accepted CUDA kernels or native/vLLM model backends. Main contains the
+full inference runtime, autonomy workload, replay, documentation, and CI.
