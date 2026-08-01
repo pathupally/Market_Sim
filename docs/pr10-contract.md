@@ -1,4 +1,4 @@
-# PR 10 contract: Velorum autonomy release
+# PR 10 contract: synthetic radar workload
 
 Status: accepted
 
@@ -8,15 +8,14 @@ Base commit: `c3a4aaf`
 
 ## Outcome
 
-PR10 turns the inference runtime into a portfolio-facing autonomous-systems
-workload. It rebrands the public project as **Velorum** and adds a deterministic
-2D radar scenario, grammar-safe vehicle commands, continuous-batch scheduling,
-shared-prefix KV accounting, deadline metrics, a JSON trace, and a responsive
-browser replay.
+PR10 added a deterministic 2D radar scenario, grammar-safe vehicle commands,
+continuous-batch scheduling, shared-prefix KV accounting, deadline metrics, a
+JSON trace, and a responsive browser replay. The current project keeps this as
+a synthetic scheduler workload; it is not the inference runtime's public
+identity or an end-to-end model client.
 
-The old prediction-market workload remains as a regression target, not the
-project's public purpose. Existing `marketforge_*` internal targets remain to
-preserve history and avoid a high-risk mechanical namespace rewrite.
+The prediction-market workload also remains as a regression target. Existing
+`marketforge_*` targets retain the implementation namespace.
 
 ## Workload contract
 

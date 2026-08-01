@@ -1,4 +1,4 @@
-#include "velorum/autonomy/simulation.hpp"
+#include "marketforge/workloads/radar_simulation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -20,7 +20,7 @@
 #include "marketforge/serving/paged_kv_cache.hpp"
 #include "marketforge/serving/sequence_scheduler.hpp"
 
-namespace velorum::autonomy {
+namespace marketforge::workloads {
 namespace {
 
 using marketforge::ChoiceId;
@@ -632,7 +632,7 @@ Result<ScenarioResult> run_scenario(ScenarioConfig config) noexcept {
 }
 
 bool write_trace_json(const ScenarioResult& result, std::ostream& output) {
-  output << "{\"schema_version\":1,\"project\":\"Velorum\",\"scenario\":{";
+  output << "{\"schema_version\":1,\"project\":\"market_sim\",\"scenario\":{";
   output << "\"steps\":" << result.config.steps
          << ",\"vehicle_count\":" << result.config.vehicle_count
          << ",\"target_count\":" << result.config.target_count << ",\"seed\":\""
@@ -761,4 +761,4 @@ bool write_trace_json(const ScenarioResult& result, std::ostream& output) {
   return output.good();
 }
 
-} // namespace velorum::autonomy
+} // namespace marketforge::workloads

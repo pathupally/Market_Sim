@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string_view>
 
-#include "velorum/autonomy/simulation.hpp"
+#include "marketforge/workloads/radar_simulation.hpp"
 
 namespace {
 
@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  auto result = velorum::autonomy::run_scenario();
+  auto result = marketforge::workloads::run_scenario();
   if (!result) {
     std::cerr << "scenario failed with error code "
               << static_cast<unsigned>(result.status().code) << '\n';
@@ -32,7 +32,8 @@ int main(int argc, char** argv) {
   const auto& scenario = result.value();
   if (!output_path.empty()) {
     std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
-    if (!output || !velorum::autonomy::write_trace_json(scenario, output)) {
+    if (!output ||
+        !marketforge::workloads::write_trace_json(scenario, output)) {
       std::cerr << "could not write trace to " << output_path << '\n';
       return 1;
     }
@@ -40,7 +41,7 @@ int main(int argc, char** argv) {
 
   const auto& metrics = scenario.metrics;
   std::cout << std::fixed << std::setprecision(3)
-            << "{\"project\":\"Velorum\",\"result\":\"pass\""
+            << "{\"project\":\"market_sim\",\"result\":\"pass\""
             << ",\"decisions\":" << metrics.decisions
             << ",\"p50_latency_us\":" << metrics.p50_latency_microseconds
             << ",\"p95_latency_us\":" << metrics.p95_latency_microseconds

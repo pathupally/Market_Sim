@@ -4,16 +4,16 @@
 #include <sstream>
 
 #include "marketforge/core/status.hpp"
-#include "velorum/autonomy/simulation.hpp"
+#include "marketforge/workloads/radar_simulation.hpp"
 
 namespace {
 
 using marketforge::ErrorCode;
-using velorum::autonomy::action_name;
-using velorum::autonomy::MissionAction;
-using velorum::autonomy::run_scenario;
-using velorum::autonomy::ScenarioConfig;
-using velorum::autonomy::write_trace_json;
+using marketforge::workloads::action_name;
+using marketforge::workloads::MissionAction;
+using marketforge::workloads::run_scenario;
+using marketforge::workloads::ScenarioConfig;
+using marketforge::workloads::write_trace_json;
 
 ScenarioConfig compact_config() {
   ScenarioConfig config;
@@ -25,7 +25,7 @@ ScenarioConfig compact_config() {
   return config;
 }
 
-MF_TEST(velorum_rejects_invalid_or_underprovisioned_scenarios) {
+MF_TEST(radar_workload_rejects_invalid_or_underprovisioned_scenarios) {
   auto config = compact_config();
   config.vehicle_count = 0;
   MF_CHECK_EQ(run_scenario(config).status().code, ErrorCode::invalid_argument);
@@ -39,7 +39,7 @@ MF_TEST(velorum_rejects_invalid_or_underprovisioned_scenarios) {
   MF_CHECK_EQ(run_scenario(config).status().code, ErrorCode::invalid_argument);
 }
 
-MF_TEST(velorum_scenario_is_deterministic_and_grammar_safe) {
+MF_TEST(radar_workload_is_deterministic_and_grammar_safe) {
   const auto config = compact_config();
   const auto first = run_scenario(config);
   const auto second = run_scenario(config);
@@ -67,7 +67,7 @@ MF_TEST(velorum_scenario_is_deterministic_and_grammar_safe) {
   }
 }
 
-MF_TEST(velorum_exercises_batching_deadlines_and_shared_prefixes) {
+MF_TEST(radar_workload_exercises_batching_deadlines_and_shared_prefixes) {
   const auto result = run_scenario(compact_config());
   MF_CHECK(result);
   const auto& metrics = result.value().metrics;
@@ -90,20 +90,21 @@ MF_TEST(velorum_exercises_batching_deadlines_and_shared_prefixes) {
   MF_CHECK(metrics.faster_than_realtime_factor > 1.0);
 }
 
-MF_TEST(velorum_trace_json_contains_replay_contract) {
+MF_TEST(radar_workload_trace_json_contains_replay_contract) {
   const auto result = run_scenario(compact_config());
   MF_CHECK(result);
   std::ostringstream output;
   MF_CHECK(write_trace_json(result.value(), output));
   const auto trace = output.str();
-  MF_CHECK(trace.starts_with("{\"schema_version\":1,\"project\":\"Velorum\""));
+  MF_CHECK(
+      trace.starts_with("{\"schema_version\":1,\"project\":\"market_sim\""));
   MF_CHECK(trace.find("\"radar_returns\":[") != std::string::npos);
   MF_CHECK(trace.find("\"grammar_valid\":true") != std::string::npos);
   MF_CHECK(trace.find("\"metrics\":{") != std::string::npos);
   MF_CHECK(trace.ends_with("}\n"));
 }
 
-MF_TEST(velorum_action_labels_are_stable) {
+MF_TEST(radar_workload_action_labels_are_stable) {
   MF_CHECK_EQ(action_name(MissionAction::hold), "HOLD");
   MF_CHECK_EQ(action_name(MissionAction::investigate), "INVESTIGATE");
   MF_CHECK_EQ(action_name(MissionAction::intercept), "INTERCEPT");

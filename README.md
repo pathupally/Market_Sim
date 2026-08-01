@@ -1,90 +1,115 @@
-# Velorum
+# market_sim
 
-**Real-time C++/CUDA inference and simulation for structured autonomous
-systems.**
+[![CI](https://github.com/pathupally/Market_Sim/actions/workflows/ci.yml/badge.svg)](https://github.com/pathupally/Market_Sim/actions/workflows/ci.yml)
 
-Velorum is a from-scratch SmolLM2-135M inference stack paired with a
-deterministic radar/autonomy workload. It covers the systems path from model
-weights to decisions: safe safetensors loading, a readable CPU oracle, custom
-CUDA transformer kernels, vLLM serving ablations, continuous batching, paged
-KV memory, shared prefixes, grammar-constrained decoding, deadline metrics,
-and replayable simulation traces.
+A C++20/CUDA inference runtime for constrained decoding with small language
+models. The current runtime executes the full 30-layer SmolLM2-135M decoder,
+checks its output against a readable CPU implementation and a pinned vLLM
+backend, and records source-bound NVIDIA L4 evidence.
 
-![Velorum radar replay with vehicle telemetry and deadline evidence](demo/velorum-replay.png)
+The narrow scope is intentional. `market_sim` accepts token IDs, runs greedy
+inference, and focuses on the systems work around model loading, transformer
+kernels, output projection, request scheduling, and KV-cache ownership.
 
-The default demo needs no model download and runs on this Mac:
-
-```sh
-cmake --preset mac-release
-cmake --build --preset mac-release
-./build/mac-release/velorum_demo --output demo/velorum-trace.json
-python3 -m http.server 8000 --directory demo
-```
-
-Open [http://localhost:8000](http://localhost:8000). The included reference
-trace works immediately; scenario state and decisions are deterministic for
-the same configuration, seed, and runtime.
-
-## What the project demonstrates
+## Runtime at a glance
 
 ```mermaid
 flowchart LR
-    W["Locked 269 MB<br/>SmolLM2 weights"] --> C["C++20 CPU oracle"]
-    W --> G["Native CUDA FP16 runtime"]
-    W --> V["vLLM 0.25.1 backend"]
-    C --> P["Exact token parity"]
-    G --> P
+    W["Locked SmolLM2-135M checkpoint"] --> L["Checked config + safetensors loader"]
+    L --> C["FP32 CPU oracle"]
+    L --> N["Native FP16 CUDA runtime"]
+    L --> V["vLLM 0.25.1 adapter"]
+    C --> P["Exact token conformance"]
+    N --> P
     V --> P
-    G --> H["Fused legal-token<br/>output head"]
-    H --> S["Continuous batching<br/>+ paged KV"]
-    S --> A["Noisy radar autonomy<br/>workload"]
-    A --> R["Deterministic JSON<br/>replay + metrics"]
+    D["Finite-choice token DFA"] --> H["Restricted CUDA output head"]
+    N --> H
+    S["Sequence scheduler"] --> X["Synthetic workload clients"]
+    K["Transactional paged KV accounting"] --> X
 ```
 
-- A 30-layer native FP16 CUDA decoder with cuBLAS projections and custom
-  RMSNorm, RoPE, causal GQA attention, SwiGLU, embedding, residual, KV-write,
-  and greedy-selection kernels.
-- A fused constrained output head that scores only legal tied-embedding rows,
-  accumulates in FP32, resolves ties deterministically, and avoids allocating
-  full 49,152-token logit tensors.
-- A backend-neutral finite-choice token DFA, round-robin continuous batching,
-  transactional paged KV ownership, and immutable shared-prefix pages.
-- A deterministic 2D multi-vehicle workload with noisy range/bearing radar,
-  five grammar-safe commands, an 8 ms decision SLA, and an interactive replay.
+The native CUDA path combines cuBLAS projections with custom kernels for
+RMSNorm, RoPE, causal grouped-query attention, SwiGLU, embeddings, residual
+updates, KV writes, and greedy selection. A separate restricted output-head
+kernel scores only the tied-embedding rows that are legal in the current token
+DFA state. Dot products accumulate in FP32 and ties resolve to the lowest token
+ID.
 
-## Measured evidence
+The serving layer has a deterministic round-robin scheduler plus a paged KV
+allocator with transactional reservation, rollback, and immutable shared
+prefixes. These components have failure-path and property tests; they are not
+presented as a deployed inference service.
 
-Results below come from the committed evidence artifacts. GPU timings are from
-one source-bound NVIDIA L4 run. Autonomy latencies are a deterministic service
-cost model used to test scheduling and deadlines; they are not host wall-clock
-benchmarks.
+## Measured on NVIDIA L4
 
-| Result | Evidence |
+The committed result below is one run bound to commit `236c0346` and source
+archive SHA-256 `1f6ec1e5cd42ab84a8f907ff2eed77ed60dc5f81feffd56a5b3eb0b3295f8da2`.
+It is evidence for this implementation on one L4, not a claim about other GPUs
+or serving stacks.
+
+| Measurement | Result |
 |---|---:|
-| Restricted output-head speedup | **1.272×–20.717×** across 12/12 parity cells |
-| CUDA Graph single-request speedup | **3.378×** vs eager vLLM |
-| CUDA Graph batch speedup | **2.089×** vs eager vLLM |
-| Warm shared-prefix speedup | **2.170×** |
-| Native CUDA / vLLM greedy output | exact **`[198, 198, 504]`** |
-| Autonomy decisions | **1,536**, 100% grammar-valid |
-| Decision latency | **7.774 / 8.988 / 9.017 ms** p50/p95/p99 |
-| Peak KV-page reduction | **77.5%** with a shared 64-token prefix |
-| Deterministic workload rate | **3,571 decisions/service-second**, 27.9× real time |
+| Restricted output head vs. full 49,152-row projection | 1.272x to 20.717x |
+| Restricted-head parity matrix | 12 / 12 exact |
+| vLLM CUDA Graph, single request vs. eager | 3.378x |
+| vLLM CUDA Graph, batch vs. eager | 2.089x |
+| vLLM warm shared prefix vs. cold prefix | 2.170x |
+| Native CUDA and vLLM greedy output | `[198, 198, 504]` |
 
-See [PR9 GPU evidence](docs/pr9-modal-result.json) and the
-[PR10 release contract](docs/pr10-contract.md) for provenance and limitations.
+The restricted-head matrix covers batch sizes 1, 16, and 256 with 2, 8, 32,
+or 128 legal rows. Raw timings, hardware identity, parity counts, model output,
+commit identity, and archive hash are in
+[`docs/pr9-modal-result.json`](docs/pr9-modal-result.json). The acceptance
+criteria and measurement limits are in
+[`docs/pr9-contract.md`](docs/pr9-contract.md).
 
-## Build and test
+## What is implemented
 
-Debug with warnings-as-errors:
+- Bounds-checked, memory-mapped safetensors parsing with exact tensor, shape,
+  and dtype binding. The fetch and conformance tools also check file size and
+  SHA-256.
+- A full FP32 CPU SmolLM2 decode path used as the numerical oracle.
+- A full FP16 CUDA SmolLM2 path with explicit stream ownership and checked
+  device allocations.
+- A generic finite-choice token DFA and a fused legal-row output projection.
+- Deterministic scheduling and paged KV ownership primitives, including prefix
+  sharing and rollback.
+- A strict JSON result schema shared by CPU, native CUDA, and vLLM evidence.
+- Bounded Modal jobs for Linux portability, Compute Sanitizer, CUDA benchmarks,
+  native model conformance, and vLLM comparisons.
+
+## Scope limits
+
+This repository is an inference-systems prototype, not a general model server.
+
+- Inputs are pretokenized. There is no native tokenizer or text-generation API.
+- Full-model execution targets the locked SmolLM2-135M architecture. The Qwen
+  profile is used for configuration and memory-planning tests, not execution.
+- Decoding is greedy and the conformance workload emits three tokens.
+- The scheduler and paged allocator are tested C++ control-plane primitives;
+  they are not wired to the native CUDA model's physical KV buffers.
+- The vLLM code is an offline comparison adapter. There is no HTTP endpoint,
+  admission controller, multi-node runtime, or fault-tolerant worker manager.
+- The radar and prediction-market modules are synthetic clients. Their actions
+  are deterministic heuristics, and their service times are modeled values.
+  They do not call the language model or report wall-clock inference latency.
+
+## Build and test locally
+
+The default build is CPU-only and does not download model weights.
 
 ```sh
 cmake --preset mac-debug
 cmake --build --preset mac-debug
 ctest --preset mac-debug
+python3 -m venv .venv
+.venv/bin/python -m pip install -r tools/modal/requirements.txt
+.venv/bin/python -m unittest discover -s tools/inference -t . -p 'test_*.py'
+.venv/bin/python -m unittest discover -s tools/model -t . -p 'test_*.py'
+.venv/bin/python -m unittest discover -s tools/modal -t . -p 'test_*.py'
 ```
 
-ASan/UBSan:
+Run the sanitizer preset separately:
 
 ```sh
 cmake --preset mac-sanitize
@@ -92,21 +117,21 @@ cmake --build --preset mac-sanitize
 ctest --preset mac-sanitize
 ```
 
-The default suite never downloads weights. The autonomy demo exercises the
-control plane without an accelerator; CUDA targets are enabled explicitly on
-Linux with `-DMARKETFORGE_ENABLE_CUDA=ON`.
+Native CUDA targets compile for compute capability 8.9. The accepted native
+gate pins CUDA 12.6.3; the vLLM image pins CUDA 12.9. Both use a single Modal
+L4 and a 15-minute timeout. See
+[`tools/modal/README.md`](tools/modal/README.md) for the locked toolchain,
+budget checks, and reproduction commands.
 
-## Small-model policy
+## Model policy
 
-Weights are never committed. The locked development model is
+Weights are never committed. The locked model is
 [`HuggingFaceTB/SmolLM2-135M`](https://huggingface.co/HuggingFaceTB/SmolLM2-135M)
-at revision `93efa2f097d58c2a74874c7e644dbc9b0cee75a2`: one 269 MB BF16
-safetensors file. It fits the 36 GB M3 Pro development machine with room for
-the FP32 CPU oracle, and the production native/vLLM gates run on one Modal L4.
-Every opt-in model load verifies the locked size, SHA-256, tensor set, shapes,
-and dtypes first.
+at revision `93efa2f097d58c2a74874c7e644dbc9b0cee75a2`. Its single BF16
+safetensors file is 269,060,552 bytes. Opt-in model loading checks the revision,
+file size, SHA-256, tensor names, shapes, and dtypes before execution.
 
-The canonical full-model CPU conformance command is:
+The CPU conformance path is:
 
 ```sh
 .venv/bin/python -m tools.model.conformance \
@@ -115,28 +140,40 @@ The canonical full-model CPU conformance command is:
   --fixture tests/fixtures/golden/smollm2-pr4-greedy-f32.safetensors
 ```
 
+Download and cache rules are documented in
+[`models/README.md`](models/README.md).
+
+## Synthetic scheduler workload
+
+The optional radar replay gives the scheduler, token DFA, and paged allocator a
+deterministic client. It is useful for inspecting batching and cache-accounting
+behavior without downloading weights:
+
+```sh
+cmake --preset mac-release
+cmake --build --preset mac-release
+./build/mac-release/marketforge_radar_demo --output demo/radar-trace.json
+python3 -m http.server 8000 --directory demo
+```
+
+Open [http://localhost:8000](http://localhost:8000). The displayed decision
+latencies come from the workload's virtual service-cost model.
+
 ## Repository map
 
-- `include/marketforge`, `src/cuda`, `src/cpu`: tensor, model, and inference
-  runtime.
-- `include/marketforge/serving`, `src/serving`: scheduler and paged KV cache.
-- `include/velorum`, `src/autonomy`: radar/autonomy workload and trace writer.
-- `demo`: dependency-free replay UI and committed deterministic reference
-  trace.
-- `tools/inference`, `tools/modal`: vLLM adapter and bounded, source-bound L4
-  validation.
-- `docs`: contracts, progress records, numerical evidence, and limitations.
+- `include/marketforge`, `src/cpu`, `src/cuda`: runtime APIs and model
+  execution.
+- `src/serving`: sequence scheduling and paged KV ownership.
+- `src/grammar`: generic token DFA plus the retained finite-action fixture.
+- `tools/inference`: result contract and pinned vLLM adapter.
+- `tools/modal`: source-bound Linux/CUDA validation jobs.
+- `tests`: CPU, CUDA, property, failure-path, and fixture tests.
+- `docs`: accepted contracts, progress records, and raw evidence artifacts.
+- `demo`, `src/workloads`: optional synthetic scheduler workload and replay.
 
-The retained `marketforge_*` target names are internal historical identifiers;
-the public project and final executable are Velorum.
-
-## Cloud budget
-
-Modal validation is bounded to one container and an explicit timeout. The
-project stops discretionary launches at a $24 soft cap under a $30 monthly
-budget, preserving at least $6. Conservative spend through the accepted PR9
-gate is $5.331288. See the [Modal guide](tools/modal/README.md).
+`marketforge_*` remains the implementation namespace and target prefix from the
+original prototype. The repository and CMake project are named `market_sim`.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [`LICENSE`](LICENSE).

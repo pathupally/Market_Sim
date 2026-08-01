@@ -26,4 +26,23 @@ jobs:
       - name: Validate replay assets
         run: |
           node --check demo/app.js
-          jq -e '.project == "Velorum" and (.frames | length) == 48' demo/velorum-trace.json
+          jq -e '.project == "market_sim" and (.frames | length) == 48' demo/radar-trace.json
+
+  python-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/modal/requirements.txt
+      - name: Install test dependency
+        run: python -m pip install -r tools/modal/requirements.txt
+      - name: Test inference contracts
+        run: python -m unittest discover -s tools/inference -t . -p 'test_*.py'
+      - name: Test model tooling
+        run: python -m unittest discover -s tools/model -t . -p 'test_*.py'
+      - name: Test bounded Modal tooling
+        run: python -m unittest discover -s tools/modal -t . -p 'test_*.py'

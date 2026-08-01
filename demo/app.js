@@ -46,13 +46,13 @@ function assertTrace(trace) {
   if (
     !trace ||
     trace.schema_version !== 1 ||
-    trace.project !== "Velorum" ||
+    trace.project !== "market_sim" ||
     !trace.scenario ||
     !trace.metrics ||
     !Array.isArray(trace.frames) ||
     trace.frames.length === 0
   ) {
-    throw new Error("This file is not a Velorum trace (schema version 1).");
+    throw new Error("This file is not a market_sim trace (schema version 1).");
   }
   for (const frame of trace.frames) {
     if (!Array.isArray(frame.vehicles) || !Array.isArray(frame.decisions)) {
@@ -413,7 +413,7 @@ window.addEventListener("keydown", (event) => {
 
 new ResizeObserver(render).observe(elements.canvas.parentElement);
 
-fetch("./velorum-trace.json")
+fetch("./radar-trace.json")
   .then((response) => {
     if (!response.ok) throw new Error(`Trace request failed (${response.status}).`);
     return response.json();

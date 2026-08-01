@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(
-  Velorum
+  market_sim
   VERSION 1.0.0
-  DESCRIPTION "Real-time C++/CUDA inference and autonomy simulation"
+  DESCRIPTION "C++20/CUDA runtime for constrained small-model inference"
   LANGUAGES CXX
 )
 
@@ -75,25 +75,25 @@ target_link_libraries(marketforge_serving PUBLIC MarketForge::core)
 marketforge_set_warnings(marketforge_serving)
 marketforge_enable_sanitizers(marketforge_serving)
 
-add_library(velorum_autonomy
-  src/autonomy/simulation.cpp
+add_library(marketforge_workloads
+  src/workloads/radar_simulation.cpp
 )
-add_library(Velorum::autonomy ALIAS velorum_autonomy)
-target_compile_features(velorum_autonomy PUBLIC cxx_std_20)
+add_library(MarketForge::workloads ALIAS marketforge_workloads)
+target_compile_features(marketforge_workloads PUBLIC cxx_std_20)
 target_include_directories(
-  velorum_autonomy
+  marketforge_workloads
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:include>"
 )
 target_link_libraries(
-  velorum_autonomy
+  marketforge_workloads
   PUBLIC
     MarketForge::grammar
     MarketForge::serving
 )
-marketforge_set_warnings(velorum_autonomy)
-marketforge_enable_sanitizers(velorum_autonomy)
+marketforge_set_warnings(marketforge_workloads)
+marketforge_enable_sanitizers(marketforge_workloads)
 
 add_library(marketforge_market
   src/market/batch_market.cpp
@@ -199,10 +199,10 @@ target_link_libraries(
 marketforge_set_warnings(marketforge_market_trace)
 marketforge_enable_sanitizers(marketforge_market_trace)
 
-add_executable(velorum_demo src/tools/velorum_demo.cpp)
-target_link_libraries(velorum_demo PRIVATE Velorum::autonomy)
-marketforge_set_warnings(velorum_demo)
-marketforge_enable_sanitizers(velorum_demo)
+add_executable(marketforge_radar_demo src/tools/radar_workload_demo.cpp)
+target_link_libraries(marketforge_radar_demo PRIVATE MarketForge::workloads)
+marketforge_set_warnings(marketforge_radar_demo)
+marketforge_enable_sanitizers(marketforge_radar_demo)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -212,7 +212,7 @@ if(BUILD_TESTING)
     tests/unit/cpu_operator_tests.cpp
     tests/unit/cpu_smollm2_tests.cpp
     tests/unit/action_dfa_tests.cpp
-    tests/unit/autonomy_simulation_tests.cpp
+    tests/unit/radar_workload_tests.cpp
     tests/unit/loader_tests.cpp
     tests/unit/market_tests.cpp
     tests/unit/model_spec_tests.cpp
@@ -227,7 +227,7 @@ if(BUILD_TESTING)
     marketforge_unit_tests
     PRIVATE
       MarketForge::market
-      Velorum::autonomy
+      MarketForge::workloads
   )
   target_include_directories(
     marketforge_unit_tests
@@ -242,7 +242,7 @@ if(BUILD_TESTING)
 
   add_test(NAME marketforge.unit COMMAND marketforge_unit_tests)
   add_test(NAME marketforge.market_trace COMMAND marketforge_market_trace)
-  add_test(NAME velorum.demo COMMAND velorum_demo)
+  add_test(NAME marketforge.radar_demo COMMAND marketforge_radar_demo)
   add_test(
     NAME marketforge.warning_policy
     COMMAND

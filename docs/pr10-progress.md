@@ -6,11 +6,12 @@ Branch: `main`
 
 Base: `c3a4aaf`
 
-## Milestone 1 — deterministic autonomy workload
+## Milestone 1 — deterministic radar workload
 
 Status: locally complete
 
-- added a public `Velorum::autonomy` C++20 library;
+- added the C++20 radar workload library now exposed as
+  `MarketForge::workloads`;
 - added deterministic vehicle/target dynamics and noisy range/bearing radar;
 - connected five commands to the generic token DFA;
 - exercised continuous batching and transactional shared-prefix KV pages;
@@ -40,7 +41,8 @@ Status: accepted
   handling, and trace-load error messaging;
 - verified frame stepping and autoplay in Chromium at 1440x1100 and 390x844;
 - verified a clean browser console after fixing 64-bit seed serialization;
-- rewrote the README around Velorum, measured evidence, and a quick demo path;
+- added the first portfolio README and quick demo path, later superseded by the
+  inference-runtime README;
 - added a committed reference trace, Apache-2.0 license, and Linux CI.
 
 Local evidence:
@@ -66,5 +68,5 @@ Remote Linux evidence:
 ## Release status
 
 PR10 is complete. PR9 GPU evidence remains valid because PR10 did not modify
-the accepted CUDA kernels or native/vLLM model backends. Main contains the
-full inference runtime, autonomy workload, replay, documentation, and CI.
+the accepted CUDA kernels or native/vLLM model backends. The radar code is now
+kept as a synthetic workload alongside the inference runtime.

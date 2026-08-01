@@ -7,7 +7,7 @@
 
 #include "marketforge/core/result.hpp"
 
-namespace velorum::autonomy {
+namespace marketforge::workloads {
 
 struct Vec2 {
   double x{0.0};
@@ -151,4 +151,4 @@ run_scenario(ScenarioConfig config = {}) noexcept;
 [[nodiscard]] bool write_trace_json(const ScenarioResult& result,
                                     std::ostream& output);
 
-} // namespace velorum::autonomy
+} // namespace marketforge::workloads
