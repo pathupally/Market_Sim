@@ -91,6 +91,6 @@ The function is capped at $0.239364 and 15 minutes. Detached mode keeps the
 remote input alive if the local client disconnects. The app writes its final
 `MARKETFORGE_GATE_RESULT:` record to retained logs before returning.
 
-Accepted measurements are summarized in
-[`BENCHMARKS.md`](../../BENCHMARKS.md). Raw JSON remains under `docs/` with the
-contract that governed each run.
+Accepted measurements and their source identity are summarized in
+[`BENCHMARKS.md`](../../BENCHMARKS.md). Internal run logs remain outside the
+public repository.

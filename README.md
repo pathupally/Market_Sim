@@ -140,7 +140,6 @@ implying a serving product that does not exist.
 - `tools/model`: locked fetch, conformance, and DFA-generation tools.
 - `tools/modal`: bounded Linux and NVIDIA L4 validation jobs.
 - `tests`: CPU, CUDA, property, failure-path, and fixture tests.
-- `docs`: accepted scope decisions, benchmark contracts, and raw result JSON.
 - `demo`, `src/workloads`: optional deterministic scheduler fixture.
 
 `marketforge_*` remains the implementation namespace and target prefix from the

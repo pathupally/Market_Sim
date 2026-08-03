@@ -16,9 +16,10 @@ to other models, GPUs, or serving configurations.
 | vLLM | 0.25.1 |
 | Remote CTests | 6 passed, 0 failed |
 
-The raw accepted record is
-[`docs/pr9-modal-result.json`](docs/pr9-modal-result.json). Its acceptance
-rules are in [`docs/pr9-contract.md`](docs/pr9-contract.md).
+The committed benchmark summary retains the source identity, hardware, parity
+result, and complete restricted-head matrix needed to interpret the claims.
+Internal run logs and project notes are intentionally excluded from the public
+repository.
 
 ## Restricted CUDA output head
 
@@ -90,4 +91,4 @@ The Modal reproduction entry points are documented in
 [`tools/modal/README.md`](tools/modal/README.md). A new run may produce
 different timings because cloud hardware state and software versions outside
 the locked container can vary. It should preserve the correctness invariants
-and emit a new source-bound artifact rather than overwrite this record.
+and emit a new source-bound artifact rather than overwrite this summary.
