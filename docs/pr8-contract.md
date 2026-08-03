@@ -80,4 +80,4 @@ The combined gate passed on one NVIDIA L4 with CUDA 12.9.41. It built all 76
 steps, passed 6/6 CTests, reproduced `[198, 198, 504]` through both native CUDA
 and vLLM, measured the complete grammar-restricted CUDA kernel, and accepted
 the eager/graph and cold/warm-prefix ablation matrix. See
-`docs/pr8-modal-result.json` and `docs/pr8-progress.md`.
+`docs/pr8-modal-result.json`.

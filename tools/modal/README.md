@@ -1,149 +1,96 @@
-# Modal jobs
+# Modal validation jobs
 
-These jobs supplement local Apple Silicon development with bounded Linux and
-CUDA validation. Modal model or compiler caches must live outside Git; model
-weights are never copied into this source bundle.
+These jobs run Linux and NVIDIA CUDA checks that are unavailable on the local
+Apple Silicon development machine. Model and compiler caches remain outside
+Git, and each accepted GPU result is tied to a clean source archive.
 
-## Budget policy
+## Safety properties
 
-- monthly ceiling: **$30**
-- project soft cap: **$24**
-- untouched reserve: **$6**
-- GPU allocation begins with CUDA PR 6; PRs 1–5 use CPU jobs only
-- every function must specify CPU, memory, timeout, and container limits
-- every GPU function must name one GPU class and estimate its timeout cost
-- stop new discretionary jobs when reported month-to-date project spend plus
-  the planned ceiling exceeds $24
+- The monthly budget is $30, with a $24 project soft cap and $6 reserve.
+- Callers provide current month-to-date spend before a job can launch.
+- Every function fixes its CPU, memory, timeout, and GPU allocation.
+- GPU entry points compute a worst-case cost before dispatch.
+- Source upload uses `git archive` from a clean commit, not the working tree.
+- Model revision, size, and SHA-256 are verified before construction.
+- Default unit tests import neither vLLM nor a CUDA runtime.
 
-The code-side preflight uses operator-reported month-to-date spend. Set Modal's
-enforced Workspace monthly budget to $30 in **Usage & Billing** as the hard
-outer cap.
+The Python policy is a second line of defense. Modal's enforced workspace
+budget should remain the hard outer cap. Rates in `modal_budget.py` are pinned
+inputs and should be reviewed against [Modal pricing](https://modal.com/pricing)
+before a new billing period.
 
-Rates in `modal_budget.py` are the standard rates published on 2026-07-28.
-Review them before the first cloud run of each month:
+## Local tests
 
-- <https://modal.com/pricing>
-- <https://modal.com/docs/guide/budgets>
+Run from the repository root so the local `tools.modal` package cannot shadow
+the installed Modal SDK:
 
-## Linux portability gate
-
-The job requests no GPU. It runs a warnings-as-errors GCC debug build and a
-warnings-as-errors Clang ASan/UBSan build in one two-core, 2 GiB container with
-a 600-second timeout. The function's standard-rate compute ceiling is $0.0184;
-image-build overhead is separate.
-
-```bash
+```sh
 .venv/bin/python -B -m pip install -r tools/modal/requirements.txt
-.venv/bin/python -B -m unittest tools/modal/test_modal_budget.py
+.venv/bin/python -m unittest discover -s tools/modal -t . -p 'test_*.py'
+```
+
+These tests mock cloud dispatch. They verify cost arithmetic, source identity,
+toolchain locks, evidence schemas, command construction, and refusal paths.
+
+## Linux portability
+
+The CPU job runs a warnings-as-errors GCC debug build and a Clang ASan/UBSan
+build in one two-core, 2 GiB container with a 600-second timeout. It requests no
+GPU.
+
+```sh
 .venv/bin/modal run -m tools.modal.cpu_ci --month-to-date-usd 0
 ```
 
-Replace `0` with the current project spend reported by Modal. The job is tagged
-`project=marketforge` and `purpose=ci` for later cost attribution.
+Replace `0` with current project spend.
 
-## PR 6 CUDA lifecycle gate
+## CUDA lifecycle gate
 
-The PR 6 gate uses the digest-qualified CUDA 12.6.3 Ubuntu 24.04 image in
-`cuda-toolchain-lock.json`. It passes one clean `git archive` to an ordered
-no-GPU compile stage and one L4 smoke stage. The second stage cannot run unless
-the first passes. Compute Sanitizer is a hard gate; Nsight Systems and Nsight
-Compute are probed and reported truthfully but are not required to be
-available. The lock distinguishes the installed `ninja_distribution`
-metadata version from the exact `ninja_binary` self-report and validates both.
-The image keeps the CUDA compiler/runtime at 12.6.3 and additively installs the
-SHA-pinned `cuda-sanitizer-13-0=13.0.85-1` package. Accepted evidence requires
-the exact package metadata, docs release, executable path, executable
-version/build/channel, byte size, and executable SHA-256 in
-`cuda-toolchain-lock.json`.
+`cuda_ci.py` validates a digest-qualified CUDA 12.6.3 image, performs no-GPU
+compile checks first, and then permits one L4 stage. The GPU stage runs
+invalid-write and device-leak canaries through the locked Compute Sanitizer
+binary before it accepts a clean production result. It also records compiler,
+runtime, device, Ninja, Nsight, sanitizer, and executable hashes.
 
-Before the 100-repetition production probe, the same L4 container must run
-separate invalid-global-write and device-leak canaries through the exact locked
-sanitizer path and flags. Each canary must exit 97 with matching
-tool-generated fault diagnostics and a positive error summary. Production then
-must exit zero with `ERROR SUMMARY: 0 errors`. Missing capability, a false
-success, a wrapper or alternate path, or a plain-execution fallback is a hard
-failure.
+A dry run performs the budget and source checks without importing Modal or
+dispatching a job:
 
-Month-to-date spend is mandatory. This pure Python dry run performs the
-combined-chain budget preflight. It does not import the Modal SDK, initialize
-a Modal application, or dispatch:
-
-```bash
+```sh
 .venv/bin/python -B -m tools.modal.cuda_ci \
-  --month-to-date-usd 0.00668019 --dry-run
+  --month-to-date-usd 0 \
+  --dry-run
 ```
 
-The real gate requires the PR 5 locked SmolLM2 tokenizer at an absolute path
-outside the checkout. Its `tokenizer.json` is exactly 2,104,556 bytes; the
-generator validates its locked content hash and package identity. This harness
-does not download it and never copies it into Git.
+The full gate needs the locked SmolLM2 tokenizer at an absolute path outside
+the repository:
 
-The only supported real launch is:
-
-```bash
+```sh
 .venv/bin/python -B -m tools.modal.cuda_ci \
-  --month-to-date-usd 0.00668019 \
-  --tokenizer-json /absolute/external/smollm2-135m/tokenizer.json \
+  --month-to-date-usd 0 \
+  --tokenizer-json /absolute/path/to/tokenizer.json \
   --launch
 ```
 
-The trusted launcher runs the complete poisoned-`CUDACXX` Debug, Release,
-ASan/UBSan, Python, guarded checkpoint, generation/reproducibility, and
-formatting matrix on one immutable clean-HEAD archive before it initializes
-Modal. Generation explicitly checks the archive's committed
-`smollm2_market_action_v1.inc` against that external tokenizer. The launcher
-then proves the checkout still produces the identical archive, reserves the
-entire two-stage cost and 15 L4 minutes in an atomic outside-Git trial ledger,
-and issues a one-use source-bound authorization ticket. Directly invoking
-`cuda_modal_app.py` is unsupported and cannot dispatch without that ticket and
-matching reservation.
+The two-stage chain is capped at $0.252420 and 15 L4 minutes. Launch tickets
+are source-bound and single use. Accepted results are cached outside Git by
+commit and gate so an unchanged candidate is not billed twice.
 
-Accepted evidence is cached outside Git by exact commit and gate, so an
-unchanged accepted candidate is not billed twice. Failed attempts retain their
-conservative reservation. Five reservations currently consume `$1.262100` and
-75 reserved L4 minutes under the frozen `$2.00` and 120-minute envelope.
-Attempts 6 and 7 are mathematically possible, but no further dispatch is
-authorized without explicit user approval. Raw profiler captures remain in
-remote temporary storage and are deleted after structured capability
-verification.
+## Native CUDA and vLLM gate
 
-## PR 7 and PR 8 vLLM conformance
+The combined gate uses a digest-qualified CUDA 12.9 image, vLLM 0.25.1, one
+L4, and the locked 269 MB SmolLM2 checkpoint. It builds and tests the native
+CUDA runtime, runs native full-model conformance and kernel benchmarks, then
+runs the vLLM eager/graph and cold/warm-prefix matrix.
 
-The PR 7 baseline uses vLLM 0.25.1 and the locked 269 MB SmolLM2 checkpoint in
-a digest-qualified CUDA 12.9 image. It sends token IDs directly, disables
-tokenizer initialization and detokenization, generates exactly three greedy
-tokens, and requires `[198, 198, 504]` from the existing PR 4 oracle.
-
-PR 7 first uses eager execution so CUDA Graphs cannot obscure basic model
-parity. PR 8 then holds prefix caching enabled in both configurations while it
-compares eager and CUDA-graph single/batch execution, followed by an exact
-cold/warm common-prefix replay. The checkpoint cache is a Modal Volume outside
-Git; every invocation verifies the file size and SHA-256 before model
-construction.
-
-Run all local Python tests from the repository root so the `tools.modal`
-package cannot shadow the installed Modal SDK:
-
-```bash
-.venv/bin/python -m unittest discover -s . -p 'test_*.py'
-```
-
-After committing a clean candidate, the PR 8 combined gate builds and tests the
-native CUDA library, records RMSNorm, cuBLAS, transformer-elementwise, and
-grammar-restricted selection benchmarks, runs exact native SmolLM2 inference,
-and executes the vLLM serving ablations. Its one-container, 15-minute L4
-ceiling is $0.239364:
-
-```bash
+```sh
 .venv/bin/modal run --detach -m tools.modal.vllm_modal_app \
-  --month-to-date-usd 4.373832
+  --month-to-date-usd 0
 ```
 
-Replace the example spend with the current Modal project spend. The local
-entrypoint rejects a dirty tree, creates an immutable Git archive, checks the
-$24 project soft cap, and binds the returned inference artifact to the commit
-and archive SHA-256. Detached mode keeps the input alive if the local client
-disconnects; the remote function also writes its single-line
-`MARKETFORGE_GATE_RESULT:` artifact to retained app logs before returning.
-Image build and model-transfer charges, if any, are separate from the compute
-ceiling.
+The function is capped at $0.239364 and 15 minutes. Detached mode keeps the
+remote input alive if the local client disconnects. The app writes its final
+`MARKETFORGE_GATE_RESULT:` record to retained logs before returning.
+
+Accepted measurements are summarized in
+[`BENCHMARKS.md`](../../BENCHMARKS.md). Raw JSON remains under `docs/` with the
+contract that governed each run.

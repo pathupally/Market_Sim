@@ -1,23 +1,40 @@
 # Model artifacts
 
-This directory contains model provenance metadata only. Weight files are cached
-outside the source tree and ignored by Git.
+This directory stores provenance metadata, not weights. Model files belong in
+an external cache and are ignored by Git.
 
-[`model-lock.json`](model-lock.json) pins repositories, immutable revisions,
-allowed files, sizes, SHA-256 hashes, licenses, and expected architectures.
+[`model-lock.json`](model-lock.json) pins the repository, immutable revision,
+allowed filenames, byte sizes, SHA-256 hashes, license, and architecture for
+each artifact.
 
-The default development checkpoint is SmolLM2-135M: its complete BF16
-safetensors file is 269,060,552 bytes. Its 2,104,556-byte `tokenizer.json` is
-also locked so the finite PR 5 action catalog can be regenerated outside the
-native runtime. Qwen2.5-0.5B is locked for later configuration testing, but its
-988 MB weight file is deliberately not in the fetch allowlist.
+SmolLM2-135M is the execution target. Its complete BF16 safetensors file is
+269,060,552 bytes. The lock also covers its 2,104,556-byte `tokenizer.json`,
+which is used offline to regenerate the finite-action DFA fixture. Qwen2.5-0.5B
+is present only for configuration and capacity tests; its 988 MB weight file is
+not in the fetch allowlist.
 
-Use `tools/model/fetch.py` with an explicit cache directory outside this source
-tree. The downloader rejects branch names, unlisted files, oversize responses,
-and hash mismatches.
+`tools/model/fetch.py` requires an explicit cache directory outside the source
+tree. It rejects moving revisions, unlisted files, oversize responses, and hash
+mismatches.
 
-Default tests do not fetch or load the tokenizer. With the verified artifact
-already present, the opt-in offline reproducibility check is:
+## Fetch and inspect
+
+```sh
+python3 tools/model/fetch.py fetch \
+  --model smollm2-135m \
+  --cache-dir /absolute/path/to/marketforge-cache
+
+./build/mac-debug/marketforge_model_inspect \
+  /absolute/path/to/marketforge-cache/smollm2-135m/93efa2f097d58c2a74874c7e644dbc9b0cee75a2/config.json \
+  /absolute/path/to/marketforge-cache/smollm2-135m/93efa2f097d58c2a74874c7e644dbc9b0cee75a2/model.safetensors
+```
+
+The fetch is opt-in. Default builds and tests do not access the network or load
+model weights.
+
+## Regenerate the DFA fixture
+
+With the locked tokenizer already present outside the checkout:
 
 ```sh
 MARKETFORGE_TOKENIZER_JSON=/absolute/path/to/tokenizer.json \
@@ -29,14 +46,6 @@ MARKETFORGE_TOKENIZER_JSON=/absolute/path/to/tokenizer.json \
   --check
 ```
 
-Example opt-in fetch and full metadata bind:
-
-```sh
-python3 tools/model/fetch.py fetch \
-  --model smollm2-135m \
-  --cache-dir /absolute/path/to/marketforge-cache
-
-./build/mac-debug/marketforge_model_inspect \
-  /absolute/path/to/marketforge-cache/smollm2-135m/93efa2f097d58c2a74874c7e644dbc9b0cee75a2/config.json \
-  /absolute/path/to/marketforge-cache/smollm2-135m/93efa2f097d58c2a74874c7e644dbc9b0cee75a2/model.safetensors
-```
+The generator writes model revision, tokenizer hash, package identity, and the
+canonical source vocabulary into the fixture. `--check` fails if regeneration
+would change the committed output.

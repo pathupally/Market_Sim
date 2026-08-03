@@ -24,8 +24,8 @@ complete FP32 materialization. File-backed pages are not necessarily all
 resident simultaneously, so it is conservative.
 
 The repository enforces download ceilings of 300 MiB for SmolLM2 and 1,100 MiB
-for Qwen. PR 2's downloader will reject artifacts exceeding those ceilings or
-failing the locked hash.
+for Qwen. The downloader rejects artifacts exceeding those ceilings or failing
+the locked hash.
 
 ## KV capacity
 

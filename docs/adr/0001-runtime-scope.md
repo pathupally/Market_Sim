@@ -12,8 +12,8 @@ Release 1 supports:
 
 - a fixed-rank contiguous tensor view;
 - checked byte/shape arithmetic;
-- SmolLM2/Llama as the first execution architecture;
-- Qwen2 as a later explicit architecture;
+- SmolLM2/Llama as the execution architecture;
+- Qwen2 configuration parsing for capacity tests, without execution support;
 - FP32 CPU reference and FP16 CUDA execution;
 - pretokenized inputs and a compiled finite action grammar.
 

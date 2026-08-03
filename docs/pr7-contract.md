@@ -70,6 +70,6 @@ keeps source upload, model transfer, and GPU authorization to one bounded run.
 The accepted source-bound gate for commit `182e504` builds all 69 targets,
 passes 6/6 CTests, and runs the locked 269 MB checkpoint through both native
 FP16 CUDA and vLLM 0.25.1. Both backends produce greedy tokens
-`[198, 198, 504]` from prompt IDs `[0, 1, 2, 3]`. Full evidence and the
-failed-attempt audit trail are recorded in `docs/pr7-modal-result.json` and
-`docs/pr7-progress.md`.
+`[198, 198, 504]` from prompt IDs `[0, 1, 2, 3]`. The accepted source, hardware,
+test counts, timings, memory, and token output are recorded in
+`docs/pr7-modal-result.json`.
